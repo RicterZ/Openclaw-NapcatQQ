@@ -18,3 +18,4 @@ Env config:
 - `MOLTBOT_TOKEN` / `MOLTBOT_PASSWORD` (gateway auth)
 - `MOLTBOT_WAIT_TIMEOUT` (default `60`)
 - `ALLOW_SENDERS` (optional): space/comma-separated QQ user_ids allowed to trigger relay (others ignored)
+- `--fire-and-forget`: CLI flag to relay to moltbot but skip sending replies back to QQ

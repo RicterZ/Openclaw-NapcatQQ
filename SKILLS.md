@@ -21,4 +21,3 @@ Options
 
 Notes
 - Segment flags can be mixed/repeated; the order you type is the order sent.
-- Daemon allowlist: set `ALLOW_SENDERS` (space/comma-separated QQ user_id list) to restrict who can trigger relay.
