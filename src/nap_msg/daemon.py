@@ -60,9 +60,11 @@ async def handle_message_event(
     if not text:
         logger.debug("No text content in event, skip")
         return
+    first_line = next((ln for ln in text.splitlines() if ln.strip()), text)
+    check_text = first_line.lstrip()
     for prefix in ignore_prefixes:
-        if text.startswith(prefix):
-            logger.info("Ignore message due to prefix %r", prefix)
+        if check_text.startswith(prefix):
+            logger.info("Ignore message due to prefix %r text=%r", prefix, check_text[:200])
             return
 
     session_key = _build_session_key(event)
