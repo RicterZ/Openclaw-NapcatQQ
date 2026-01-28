@@ -198,9 +198,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    ignore_prefixes = [p for p in (args.ignore_startswith or []) if isinstance(p, str) and p]
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+    logger.info(
+        "Daemon config: fire_and_forget=%s ignore_prefixes=%s",
+        args.fire_and_forget,
+        ignore_prefixes or "[]",
     )
     napcat_url = os.getenv("NAPCAT_URL")
     if not napcat_url:
@@ -215,7 +222,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 napcat_client,
                 moltbot_cfg,
                 args.fire_and_forget,
-                args.ignore_startswith or [],
+                ignore_prefixes,
             )
         )
     except KeyboardInterrupt:
