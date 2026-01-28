@@ -53,7 +53,6 @@ async def handle_message_event(
 
     sender = str(event.get("user_id", "")) if "user_id" in event else ""
     if allow_senders and sender not in allow_senders:
-        logger.info("Ignore message from disallowed sender=%s", sender)
         return
 
     text = _extract_text(event)
@@ -64,7 +63,6 @@ async def handle_message_event(
     check_text = first_line.lstrip()
     for prefix in ignore_prefixes:
         if check_text.startswith(prefix):
-            logger.info("Ignore message due to prefix %r text=%r", prefix, check_text[:200])
             return
 
     session_key = _build_session_key(event)
@@ -83,10 +81,8 @@ async def handle_message_event(
 
     reply_text = _extract_reply_text(response)
     if fire_and_forget:
-        logger.info("Fire-and-forget enabled; skip sending reply to QQ")
         return
     if not reply_text:
-        logger.debug("No reply text from moltbot, skip")
         return
 
     segment = TextMessage(reply_text).as_dict()
