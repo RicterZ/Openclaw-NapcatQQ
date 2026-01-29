@@ -11,6 +11,7 @@ from typing import List
 
 from .client import DEFAULT_TIMEOUT, NapcatRelayClient, send_group_forward_message, send_group_message, send_private_message
 from .messages import FileMessage, ForwardNode, ImageMessage, ReplyMessage, TextMessage, VideoMessage
+from .rpc import run_rpc_server
 from .watch import run_watch
 
 
@@ -117,6 +118,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Skip messages whose text starts with any of these prefixes.",
     )
 
+    subparsers.add_parser("rpc", help="Run JSON-RPC server on stdin/stdout")
+
     return parser
 
 
@@ -212,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_send_group(args)
     if args.command == "watch":
         return run_watch(args)
+    if args.command == "rpc":
+        return run_rpc_server()
 
     parser.error(f"Unknown command {args.command}")
     return 2

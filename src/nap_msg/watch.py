@@ -41,15 +41,29 @@ def run_watch(args) -> int:
     if not args.verbose:
         logging.getLogger().setLevel(logging.ERROR)
     try:
-        asyncio.run(_watch_loop(url, args.from_group, args.from_user, ignore_prefixes, asr_enabled))
+        asyncio.run(
+            watch_forever(
+                url=url,
+                from_group=args.from_group,
+                from_user=args.from_user,
+                ignore_prefixes=ignore_prefixes,
+                asr_enabled=asr_enabled,
+                emit=_emit_rpc_notification,
+            )
+        )
     except KeyboardInterrupt:
         if args.verbose:
             logging.info("watch stopped by user")
     return 0
 
 
-async def _watch_loop(
-    url: str, from_group: Optional[str], from_user: Optional[str], ignore_prefixes: list[str], asr_enabled: bool
+async def watch_forever(
+    url: str,
+    from_group: Optional[str],
+    from_user: Optional[str],
+    ignore_prefixes: list[str],
+    asr_enabled: bool,
+    emit,
 ) -> None:
     while True:
         try:
@@ -87,7 +101,10 @@ async def _watch_loop(
                     elif not text_content:
                         continue
                     filtered = {k: v for k, v in event.items() if k in KEEP_FIELDS and v is not None}
-                    _emit_rpc_notification(filtered)
+                    try:
+                        emit(filtered)
+                    except Exception as emit_exc:  # noqa: BLE001
+                        logging.warning("Failed to emit event: %s", emit_exc)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -103,11 +120,24 @@ def _try_parse_json(raw: str) -> Optional[dict]:
         return None
 
 
-def _emit_rpc_notification(params: dict) -> None:
-    payload = {"jsonrpc": "2.0", "method": "message", "params": params}
+def _emit_rpc_notification(event: dict) -> None:
+    payload = {"jsonrpc": "2.0", "method": "message.receive", "params": _event_to_receive_params(event)}
     sys.stdout.write(json.dumps(payload, ensure_ascii=False))
     sys.stdout.write("\n")
     sys.stdout.flush()
+
+
+def _event_to_receive_params(event: dict) -> dict:
+    message_type = str(event.get("message_type") or "").lower()
+    is_group = message_type == "group"
+    chat_id = event.get("group_id") if is_group else event.get("user_id")
+    return {
+        "sender": event.get("user_id"),
+        "chatId": chat_id,
+        "isGroup": is_group,
+        "text": event.get("raw_message"),
+        "messageId": event.get("message_id"),
+    }
 
 
 def _extract_text_and_record(event: dict) -> tuple[Optional[str], Optional[str]]:

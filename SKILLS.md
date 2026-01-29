@@ -30,3 +30,13 @@ Environment variables are read automatically (including from a local `.env` in t
 2. Process the queue in order and inspect `message_type`.
 3. Reply based on the type: send to `group_id` for `group`, or to `user_id` for `private`.
 4. Send replies with `nap-msg send`.
+
+## JSON-RPC Mode
+- Start RPC server on stdin/stdout: `nap-msg rpc`
+- Methods:
+  - `initialize` → reply with capabilities `{streaming:true, attachments:true}`
+  - `watch.subscribe` → emits notifications `{jsonrpc: "2.0", method: "message.receive", params: {...}}`
+  - `watch.unsubscribe`
+  - `message.send` (fields: `to`/`chatId`, optional `isGroup`, `text`)
+  - `send` (channels: `group`, `group_forward`, `private`)
+  - `chats.list` (returns `[]`)
