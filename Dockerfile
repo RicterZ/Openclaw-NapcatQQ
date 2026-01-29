@@ -10,6 +10,7 @@ WORKDIR /app
 COPY pyproject.toml poetry.lock /app/
 RUN pip install --no-cache-dir .
 COPY src /app/src
+COPY env.example /app/.env
 
 # Default Napcat URL; override via environment
 ENV NAPCAT_URL=ws://192.168.13.100:3001
