@@ -102,7 +102,9 @@ async def watch_forever(
                         continue
                     filtered = {k: v for k, v in event.items() if k in KEEP_FIELDS and v is not None}
                     try:
-                        emit(filtered)
+                        maybe_coro = emit(filtered)
+                        if asyncio.iscoroutine(maybe_coro):
+                            await maybe_coro
                     except Exception as emit_exc:  # noqa: BLE001
                         logging.warning("Failed to emit event: %s", emit_exc)
         except asyncio.CancelledError:
