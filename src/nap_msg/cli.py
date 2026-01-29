@@ -92,6 +92,12 @@ def _build_parser() -> argparse.ArgumentParser:
     watch = subparsers.add_parser("watch", help="Watch QQ incoming messages and print JSON")
     watch.add_argument("--from-group", dest="from_group", help="Only include messages from this group id")
     watch.add_argument("--from-user", dest="from_user", help="Only include messages from this user id")
+    watch.add_argument(
+        "--ignore-startswith",
+        action="append",
+        default=[],
+        help="Skip messages whose text starts with any of these prefixes.",
+    )
 
     return parser
 
@@ -171,7 +177,7 @@ def _run_send_private(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _watch_loop(url: str, from_group: Optional[str], from_user: Optional[str]) -> None:
+async def _watch_loop(url: str, from_group: Optional[str], from_user: Optional[str], ignore_prefixes: list[str]) -> None:
     while True:
         try:
             logging.info("Connecting to Napcat event stream %s", url)
@@ -191,6 +197,13 @@ async def _watch_loop(url: str, from_group: Optional[str], from_user: Optional[s
                         continue
                     if from_user and str(event.get("user_id")) != str(from_user):
                         continue
+                    text_content = _extract_text(event)
+                    if ignore_prefixes and text_content:
+                        first_line = next((ln for ln in text_content.splitlines() if ln.strip()), text_content)
+                        check_text = first_line.lstrip()
+                        if any(check_text.startswith(pfx) for pfx in ignore_prefixes):
+                            logging.info("Ignored message due to prefix match")
+                            continue
                     sys.stdout.write(json.dumps(event, ensure_ascii=False, indent=2))
                     sys.stdout.write("\n")
                     sys.stdout.flush()
@@ -207,10 +220,25 @@ def _run_watch(args: argparse.Namespace) -> int:
         sys.stderr.write("NAPCAT_URL is required for watch\n")
         return 2
     try:
-        asyncio.run(_watch_loop(url, args.from_group, args.from_user))
+        asyncio.run(_watch_loop(url, args.from_group, args.from_user, args.ignore_startswith or []))
     except KeyboardInterrupt:
         logging.info("watch stopped by user")
     return 0
+
+
+def _extract_text(event: dict) -> Optional[str]:
+    message = event.get("message")
+    if isinstance(message, str):
+        return message
+    if not isinstance(message, list):
+        return None
+    parts = []
+    for item in message:
+        if isinstance(item, dict) and item.get("type") == "text":
+            data = item.get("data") or {}
+            if isinstance(data, dict) and isinstance(data.get("text"), str):
+                parts.append(data["text"])
+    return "\n".join(parts) if parts else None
 
 
 def main(argv: list[str] | None = None) -> int:

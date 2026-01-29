@@ -9,6 +9,6 @@ CLI relay that sends messages from moltbot to a Napcat WebSocket backend. Includ
 Napcat backend: set env `NAPCAT_URL` (or pass `--napcat-url`).
 
 ### Watch QQ messages
-`poetry run nap-msg watch [--from-group <gid>] [--from-user <uid>]`
+`poetry run nap-msg watch [--from-group <gid>] [--from-user <uid>] [--ignore-startswith <pfx>]`
 
 Connects to `NAPCAT_URL`, filters optional group/user, and prints each message event as pretty JSON to stdout.
