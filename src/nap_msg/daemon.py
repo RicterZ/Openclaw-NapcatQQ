@@ -99,8 +99,24 @@ def _extract_reply_text(response: Dict[str, Any]) -> Optional[str]:
     if not isinstance(response, dict):
         return None
     final = response.get("final_text") or response.get("text")
-    if isinstance(final, str):
+    if isinstance(final, str) and final.strip():
         return final.strip()
+
+    # Fallback: stitch assistant stream texts from events
+    events = response.get("events")
+    if isinstance(events, list):
+        parts: list[str] = []
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            stream = ev.get("stream")
+            if stream and stream != "assistant":
+                continue
+            txt = ev.get("text")
+            if isinstance(txt, str):
+                parts.append(txt)
+        stitched = "".join(parts).strip()
+        return stitched or None
     return None
 
 
