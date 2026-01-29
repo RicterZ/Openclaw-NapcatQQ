@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
+from pathlib import Path
 from typing import List
 
 from .client import DEFAULT_TIMEOUT, NapcatRelayClient, send_group_forward_message, send_group_message, send_private_message
@@ -13,23 +15,40 @@ from .watch import run_watch
 
 
 def _segment_action(segment_type: str):
-    """
-    Factory to create an argparse action that appends (order, type, value) tuples,
-    preserving the order segments appear on the command line.
-    """
+    """Create an argparse action that appends (type, value) while preserving CLI order."""
 
     class _SegmentAction(argparse.Action):
-        _counter = 0
-
         def __call__(self, parser, namespace, values, option_string=None):
-            segments = getattr(namespace, self.dest, None)
-            if segments is None:
-                segments = []
-            segments.append((_SegmentAction._counter, segment_type, values))
-            _SegmentAction._counter += 1
+            segments = getattr(namespace, self.dest, []) or []
+            segments.append((segment_type, values))
             setattr(namespace, self.dest, segments)
 
     return _SegmentAction
+
+
+def _load_dotenv_if_present() -> None:
+    env_path = Path.cwd() / ".env"
+    if not env_path.is_file():
+        return
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.startswith("export "):
+                stripped = stripped[len("export ") :].strip()
+            if "=" not in stripped:
+                continue
+            key, _, value = stripped.partition("=")
+            key = key.strip()
+            if not key or key in os.environ:
+                continue
+            value = value.strip()
+            if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+                value = value[1:-1]
+            os.environ[key] = value
+    except OSError as exc:
+        logging.debug("Skipping .env load: %s", exc)
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -103,23 +122,22 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _build_message_segments(args: argparse.Namespace) -> List[object]:
     segments = getattr(args, "segments", []) or []
-    ordered = sorted(segments, key=lambda x: x[0])
     parts: List[object] = []
-    for _, seg_type, value in ordered:
-        if seg_type == "reply":
-            parts.append(ReplyMessage(value))
-        elif seg_type == "text":
-            parts.append(TextMessage(value))
-        elif seg_type == "image":
-            parts.append(ImageMessage(value))
-        elif seg_type == "video":
-            parts.append(VideoMessage(value))
-        elif seg_type == "file":
-            parts.append(FileMessage(value))
+    builders = {
+        "reply": ReplyMessage,
+        "text": TextMessage,
+        "image": ImageMessage,
+        "video": VideoMessage,
+        "file": FileMessage,
+    }
+    for seg_type, value in segments:
+        builder = builders.get(seg_type)
+        if builder:
+            parts.append(builder(value))
     return parts
 
 
-def _build_forward_nodes(args: argparse.Namespace, parts: List[object]) -> List[ForwardNode]:
+def _build_forward_nodes(parts: List[object]) -> List[ForwardNode]:
     user_id = os.getenv("NAPCAT_FORWARD_USER_ID", "")
     nickname = os.getenv("NAPCAT_FORWARD_NICKNAME", "メイド")
     return [ForwardNode(user_id, nickname, [part]) for part in parts]
@@ -135,10 +153,17 @@ def _print_response(response: dict) -> None:
     sys.stdout.flush()
 
 
-def _run_send_group(args: argparse.Namespace) -> int:
+def _message_parts_or_error(args: argparse.Namespace) -> List[object] | None:
     parts = _build_message_segments(args)
+    if parts:
+        return parts
+    sys.stderr.write("No message content supplied; add --text/--image/--file/--video/--reply\n")
+    return None
+
+
+def _run_send_group(args: argparse.Namespace) -> int:
+    parts = _message_parts_or_error(args)
     if not parts:
-        sys.stderr.write("No message content supplied; add --text/--image/--file/--video/--reply\n")
         return 2
 
     is_forward = args.forward or args.type == "forward"
@@ -146,7 +171,7 @@ def _run_send_group(args: argparse.Namespace) -> int:
 
     try:
         if is_forward:
-            nodes = _build_forward_nodes(args, parts)
+            nodes = _build_forward_nodes(parts)
             response = asyncio.run(send_group_forward_message(client, args.group_id, nodes))
         else:
             response = asyncio.run(send_group_message(client, args.group_id, _serialize_parts(parts)))
@@ -159,9 +184,8 @@ def _run_send_group(args: argparse.Namespace) -> int:
 
 
 def _run_send_private(args: argparse.Namespace) -> int:
-    parts = _build_message_segments(args)
+    parts = _message_parts_or_error(args)
     if not parts:
-        sys.stderr.write("No message content supplied; add --text/--image/--file/--video/--reply\n")
         return 2
 
     client = NapcatRelayClient(url=args.napcat_url, timeout=args.timeout)
@@ -177,6 +201,7 @@ def _run_send_private(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _load_dotenv_if_present()
     parser = _build_parser()
     args = parser.parse_args(argv)
     _configure_logging(args.verbose)
