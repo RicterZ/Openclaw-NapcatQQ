@@ -7,7 +7,6 @@ import os
 import sys
 from typing import Optional
 
-import httpx
 import websockets
 
 from .asr import sentence_recognize
@@ -116,9 +115,9 @@ def _extract_text_and_record(event: dict) -> tuple[Optional[str], Optional[str]]
             if isinstance(txt, str):
                 text_parts.append(txt)
         elif seg_type == "record" and record_file is None:
-            rec_url = seg_data.get("url")
-            if isinstance(rec_url, str) and rec_url.strip():
-                record_file = rec_url.strip()
+            rec_path = seg_data.get("path") or seg_data.get("file")
+            if isinstance(rec_path, str) and rec_path.strip():
+                record_file = rec_path.strip()
         elif seg_type in {"face", "image"}:
             continue
     return ("\n".join(text_parts) if text_parts else None, record_file)
@@ -148,15 +147,14 @@ async def _resolve_text(clean_text: Optional[str], record_file: Optional[str]) -
 
 
 async def _fetch_voice(path: str) -> bytes:
-    url = path
-    if not (path.startswith("http://") or path.startswith("https://")):
-        url = _build_napcat_file_url(path)
-        if not url:
-            return b""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        return resp.content
+    local_path = _build_napcat_local_path(path)
+    if not local_path:
+        return b""
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, _read_file_bytes, local_path)
+    except FileNotFoundError:
+        return b""
 
 
 def _read_file_bytes(path: str) -> bytes:
@@ -173,14 +171,18 @@ def _strip_cq_and_whitespace(text: str) -> str:
 
 
 def _build_napcat_file_url(path: str) -> Optional[str]:
-    """
-    Convert a local QQ voice path to the Napcat file URL.
-    Example: /app/.config/QQ/nt_qq_.../nt_data/Ptt/2026-01/Ori/xxx.amr
-    becomes http://192.168.13.100/napcat/nt_qq_.../nt_data/Ptt/2026-01/Ori/xxx.amr
-    """
     marker = "/nt_qq_"
     idx = path.find(marker)
     if idx == -1:
         return None
-    rel = path[idx + 1 :] if path.startswith("/") else path[idx:]
+    rel = path[idx:] if path.startswith(marker) else path[idx:]
     return f"http://192.168.13.100/napcat/{rel}"
+
+
+def _build_napcat_local_path(path: str) -> Optional[str]:
+    marker = "/nt_qq_"
+    idx = path.find(marker)
+    if idx == -1:
+        return None
+    rel = path[idx:]
+    return f"/napcat{rel}"
