@@ -8,7 +8,9 @@ from datetime import datetime
 from typing import Optional
 
 import httpx
+import logging
 
+logger = logging.getLogger(__name__)
 
 
 def _hmac_sha256(key: bytes, msg: str) -> bytes:

@@ -8,9 +8,11 @@ import os
 import sys
 from typing import List, Optional
 
+import httpx
 from .client import DEFAULT_TIMEOUT, NapcatRelayClient, send_group_forward_message, send_group_message, send_private_message
 from .messages import FileMessage, ForwardNode, ImageMessage, ReplyMessage, TextMessage, VideoMessage
 import websockets
+from .asr import sentence_recognize
 
 
 def _segment_action(segment_type: str):
@@ -197,13 +199,16 @@ async def _watch_loop(url: str, from_group: Optional[str], from_user: Optional[s
                         continue
                     if from_user and str(event.get("user_id")) != str(from_user):
                         continue
-                    text_content = _extract_text(event)
+                    text_content, record_file = _extract_text_and_record(event)
                     if ignore_prefixes and text_content:
                         first_line = next((ln for ln in text_content.splitlines() if ln.strip()), text_content)
                         check_text = first_line.lstrip()
                         if any(check_text.startswith(pfx) for pfx in ignore_prefixes):
                             logging.info("Ignored message due to prefix match")
                             continue
+                    resolved = await _resolve_text(text_content, record_file)
+                    if resolved:
+                        event["resolved_text"] = resolved
                     sys.stdout.write(json.dumps(event, ensure_ascii=False, indent=2))
                     sys.stdout.write("\n")
                     sys.stdout.flush()
@@ -226,19 +231,70 @@ def _run_watch(args: argparse.Namespace) -> int:
     return 0
 
 
-def _extract_text(event: dict) -> Optional[str]:
+def _extract_text_and_record(event: dict) -> tuple[Optional[str], Optional[str]]:
     message = event.get("message")
     if isinstance(message, str):
-        return message
+        return message, None
     if not isinstance(message, list):
-        return None
-    parts = []
+        return None, None
+    text_parts = []
+    record_file = None
     for item in message:
-        if isinstance(item, dict) and item.get("type") == "text":
-            data = item.get("data") or {}
-            if isinstance(data, dict) and isinstance(data.get("text"), str):
-                parts.append(data["text"])
-    return "\n".join(parts) if parts else None
+        if not isinstance(item, dict):
+            continue
+        seg_type = item.get("type", "")
+        seg_data = item.get("data", {}) or {}
+        if seg_type == "at":
+            continue
+        if seg_type == "text":
+            txt = seg_data.get("text")
+            if isinstance(txt, str):
+                text_parts.append(txt)
+        elif seg_type == "record" and record_file is None:
+            rec = seg_data.get("file")
+            if isinstance(rec, str):
+                record_file = rec
+    return ("\n".join(text_parts) if text_parts else None, record_file)
+
+
+async def _resolve_text(clean_text: Optional[str], record_file: Optional[str]) -> Optional[str]:
+    """Normalize text, falling back to voice transcription when needed."""
+    if clean_text:
+        return clean_text
+    if not record_file:
+        return None
+
+    secret_id = os.getenv("TENCENT_SECRET_ID", "").strip()
+    secret_key = os.getenv("TENCENT_SECRET_KEY", "").strip()
+    if not secret_id or not secret_key:
+        logging.info("Voice message ignored (missing Tencent ASR credentials)")
+        return None
+
+    try:
+        audio_bytes = await _fetch_voice(record_file)
+        text = await sentence_recognize(audio_bytes, voice_format="mp3")
+        logging.info("ASR transcribed voice to text: %s", text)
+        return text
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("ASR failed, skip replying: %s", exc)
+        return None
+
+
+async def _fetch_voice(path: str) -> bytes:
+    if path.startswith("http://") or path.startswith("https://"):
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(path)
+            resp.raise_for_status()
+            return resp.content
+    # treat as local path
+    async with asyncio.Semaphore(1):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _read_file_bytes, path)
+
+
+def _read_file_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
 
 
 def main(argv: list[str] | None = None) -> int:
