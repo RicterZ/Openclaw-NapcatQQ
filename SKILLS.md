@@ -1,6 +1,10 @@
 # Napcat Relay Skill
 
 Use `nap-msg` to send QQ messages via Napcat for moltbot.
+Read necessary environment variables from `.env` file.
+
+- NAPCAT_URL
+- ALLOW_SENDERS
 
 Commands
 - Private: `nap-msg send <user_id> [segments...]`
@@ -21,3 +25,4 @@ Options
 
 Notes
 - Segment flags can be mixed/repeated; the order you type is the order sent.
+- Group ID can be reterived from environment variable `SEND_GROUP`
