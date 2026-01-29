@@ -121,9 +121,12 @@ async def handle_message_event(
         break
 
 
-def _extract_reply_text(response: Dict[str, Any]) -> Optional[str]:
+def _extract_reply_text(response: Dict[str, Any]) -> tuple[Optional[str], bool]:
+    """Return (text, has_tool_marker)."""
     if not isinstance(response, dict):
-        return None
+        return None, False
+
+    # final_text / text
     final = response.get("final_text") or response.get("text")
     if isinstance(final, str) and final.strip():
         return _strip_tool_marker(final.strip())
@@ -158,16 +161,17 @@ def _extract_reply_text(response: Dict[str, Any]) -> Optional[str]:
             if isinstance(txt, str):
                 parts.append(txt)
         stitched = "".join(parts).strip()
-        return _strip_tool_marker(stitched) or None
-    return None
+        if stitched:
+            return _strip_tool_marker(stitched)
+    return None, False
 
 
-def _strip_tool_marker(text: str) -> str:
+def _strip_tool_marker(text: str) -> tuple[str, bool]:
     """Remove trailing tool-call markers like [[reply_to_current ..."""
     marker_pos = text.find("[[")
     if marker_pos != -1:
-        return text[:marker_pos].rstrip()
-    return text
+        return text[:marker_pos].rstrip(), True
+    return text, False
 
 
 def _extract_text(event: Dict[str, Any]) -> Optional[str]:
