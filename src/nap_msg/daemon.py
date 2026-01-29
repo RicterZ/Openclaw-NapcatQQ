@@ -271,8 +271,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--auto-continue-steps",
         type=int,
-        default=int(os.getenv("AUTO_CONTINUE_STEPS", "2")),
-        help="Max auto-continue rounds when tool marker is detected (default: %(default)s).",
+        default=int(os.getenv("AUTO_CONTINUE_STEPS", "0")),
+        help="Max auto-continue rounds when tool marker is detected (default: %(default)s). Set 0 to disable.",
     )
     args = parser.parse_args(argv)
 

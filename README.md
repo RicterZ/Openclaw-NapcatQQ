@@ -20,3 +20,4 @@ Env/flags:
 - `ALLOW_SENDERS` (optional): space/comma-separated QQ user_ids allowed to trigger relay (others ignored)
 - `--fire-and-forget`: relay to moltbot but skip sending replies back to QQ
 - `--ignore-startswith <prefix>`: repeatable flag to skip relaying messages that start with given prefix(es)
+- `--auto-continue-steps` / `--auto-continue-text`: optional, send follow-up prompts when a tool marker `[[` is returned; default steps=0 (disabled)
