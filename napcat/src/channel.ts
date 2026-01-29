@@ -180,11 +180,12 @@ export const napcatPlugin: ChannelPlugin<any> = {
       const unsubscribe = connectionManager.subscribe((message) => {
         const mapped = napcatPlugin.inbound.mapIncomingMessage?.(message);
         if (!mapped) return;
-        if (typeof (ctx as any).handleInboundMessage === "function") {
-          (ctx as any).handleInboundMessage(mapped);
+        const dispatcher = (ctx as any).dispatchInboundMessage;
+        if (typeof dispatcher === "function") {
+          dispatcher(mapped);
         } else if (!missingHandlerLogged) {
           missingHandlerLogged = true;
-          ctx.log?.error?.("napcat inbound handler missing on gateway context");
+          ctx.log?.error?.("napcat inbound dispatcher missing on gateway context");
         }
       });
       
