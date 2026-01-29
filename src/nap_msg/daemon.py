@@ -38,6 +38,8 @@ async def handle_message_event(
     allow_senders: set[str],
     fire_and_forget: bool,
     ignore_prefixes: list[str],
+    auto_continue_text: str,
+    auto_continue_steps: int,
 ) -> None:
     message_type = event.get("message_type")
     if message_type not in {"group", "private"}:
@@ -71,32 +73,52 @@ async def handle_message_event(
         return
 
     logger.debug("Moltbot raw response: %r", response)
-    reply_text = _extract_reply_text(response)
+    reply_text, has_marker = _extract_reply_text(response)
     logger.info(
-        "Moltbot response: text_present=%s stitched=%s",
+        "Moltbot response: text_present=%s stitched=%s marker=%s",
         bool(reply_text),
         bool(response.get("events")) if isinstance(response, dict) else False,
+        has_marker,
     )
-    if fire_and_forget:
-        return
-    if not reply_text:
-        return
 
-    segment = TextMessage(reply_text).as_dict()
-    try:
-        if message_type == "group":
-            await send_group_message(napcat_client, str(event.get("group_id", "")), [segment])
-        else:
-            await send_private_message(napcat_client, str(event.get("user_id", "")), [segment])
-        logger.info(
-            "Sent reply via Napcat: type=%s target=%s chars=%d preview=%r",
-            message_type,
-            event.get("group_id") if message_type == "group" else event.get("user_id"),
-            len(reply_text),
-            reply_text[:200],
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Failed to send reply via Napcat: %s", exc)
+    steps_left = auto_continue_steps
+    current_text = reply_text
+    marker = has_marker
+
+    while True:
+        if not fire_and_forget and current_text:
+            segment = TextMessage(current_text).as_dict()
+            try:
+                if message_type == "group":
+                    await send_group_message(napcat_client, str(event.get("group_id", "")), [segment])
+                else:
+                    await send_private_message(napcat_client, str(event.get("user_id", "")), [segment])
+                logger.info(
+                    "Sent reply via Napcat: type=%s target=%s chars=%d preview=%r",
+                    message_type,
+                    event.get("group_id") if message_type == "group" else event.get("user_id"),
+                    len(current_text),
+                    current_text[:200],
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to send reply via Napcat: %s", exc)
+
+        if marker and steps_left > 0:
+            steps_left -= 1
+            try:
+                logger.info("Auto-continue due to tool marker, steps_left=%d", steps_left)
+                response = moltbot_mgr.send_chat(text=auto_continue_text, session_key=session_key)
+                logger.debug("Moltbot raw response (continue): %r", response)
+                current_text, marker = _extract_reply_text(response)
+                logger.info(
+                    "Moltbot continue response: text_present=%s marker=%s",
+                    bool(current_text),
+                    marker,
+                )
+                continue
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Auto-continue failed: %s", exc)
+        break
 
 
 def _extract_reply_text(response: Dict[str, Any]) -> Optional[str]:
@@ -179,6 +201,8 @@ async def watch_napcat_events(
     moltbot_mgr: MoltbotGatewayManager,
     fire_and_forget: bool,
     ignore_prefixes: list[str],
+    auto_continue_text: str,
+    auto_continue_steps: int,
 ) -> None:
     allow_senders = _load_allow_senders()
     if allow_senders:
@@ -216,6 +240,8 @@ async def watch_napcat_events(
                             allow_senders,
                             fire_and_forget,
                             ignore_prefixes,
+                            auto_continue_text,
+                            auto_continue_steps,
                         )
         except asyncio.CancelledError:
             raise
@@ -232,6 +258,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="append",
         default=[],
         help="If provided, skip relaying messages that start with any of these prefixes.",
+    )
+    parser.add_argument(
+        "--auto-continue-text",
+        default=os.getenv("AUTO_CONTINUE_TEXT", "继续"),
+        help="Text to send automatically when a tool marker [[ is detected (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--auto-continue-steps",
+        type=int,
+        default=int(os.getenv("AUTO_CONTINUE_STEPS", "2")),
+        help="Max auto-continue rounds when tool marker is detected (default: %(default)s).",
     )
     args = parser.parse_args(argv)
 
@@ -261,6 +298,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 moltbot_mgr,
                 args.fire_and_forget,
                 ignore_prefixes,
+                args.auto_continue_text,
+                args.auto_continue_steps,
             )
         )
     except KeyboardInterrupt:
