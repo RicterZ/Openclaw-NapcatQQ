@@ -116,9 +116,9 @@ def _extract_text_and_record(event: dict) -> tuple[Optional[str], Optional[str]]
             if isinstance(txt, str):
                 text_parts.append(txt)
         elif seg_type == "record" and record_file is None:
-            rec = seg_data.get("file")
-            if isinstance(rec, str):
-                record_file = rec
+            rec_url = seg_data.get("url")
+            if isinstance(rec_url, str) and rec_url.strip():
+                record_file = rec_url.strip()
         elif seg_type in {"face", "image"}:
             continue
     return ("\n".join(text_parts) if text_parts else None, record_file)
@@ -138,6 +138,8 @@ async def _resolve_text(clean_text: Optional[str], record_file: Optional[str]) -
 
     try:
         audio_bytes = await _fetch_voice(record_file)
+        if not audio_bytes:
+            return None
         text = await sentence_recognize(audio_bytes, voice_format="mp3")
         return text
     except Exception as exc:  # noqa: BLE001
@@ -146,13 +148,12 @@ async def _resolve_text(clean_text: Optional[str], record_file: Optional[str]) -
 
 
 async def _fetch_voice(path: str) -> bytes:
-    if path.startswith("http://") or path.startswith("https://"):
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(path)
-            resp.raise_for_status()
-            return resp.content
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _read_file_bytes, path)
+    if not (path.startswith("http://") or path.startswith("https://")):
+        return b""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(path)
+        resp.raise_for_status()
+        return resp.content
 
 
 def _read_file_bytes(path: str) -> bytes:
