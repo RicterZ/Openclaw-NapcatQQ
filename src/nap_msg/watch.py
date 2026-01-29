@@ -82,6 +82,9 @@ async def _watch_loop(url: str, from_group: Optional[str], from_user: Optional[s
                     resolved = await _resolve_text(text_content, record_file)
                     if resolved:
                         event["raw_message"] = resolved
+                    elif not text_content:
+                        # Voice without ASR (no creds or failed) -> skip entirely
+                        continue
                     filtered = {k: v for k, v in event.items() if k in KEEP_FIELDS and v is not None}
                     sys.stdout.write(json.dumps(filtered, ensure_ascii=False))
                     sys.stdout.write("\n")
