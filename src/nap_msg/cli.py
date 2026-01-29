@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
-import json
 import logging
 import os
 import sys
-from typing import List, Optional
+from typing import List
 
-import httpx
 from .client import DEFAULT_TIMEOUT, NapcatRelayClient, send_group_forward_message, send_group_message, send_private_message
 from .messages import FileMessage, ForwardNode, ImageMessage, ReplyMessage, TextMessage, VideoMessage
-import websockets
-from .asr import sentence_recognize
+from .watch import run_watch
 
 
 def _segment_action(segment_type: str):
@@ -351,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "send-group":
         return _run_send_group(args)
     if args.command == "watch":
-        return _run_watch(args)
+        return run_watch(args)
 
     parser.error(f"Unknown command {args.command}")
     return 2
