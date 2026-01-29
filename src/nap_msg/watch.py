@@ -87,9 +87,7 @@ async def _watch_loop(
                     elif not text_content:
                         continue
                     filtered = {k: v for k, v in event.items() if k in KEEP_FIELDS and v is not None}
-                    sys.stdout.write(json.dumps(filtered, ensure_ascii=False))
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
+                    _emit_rpc_notification(filtered)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -103,6 +101,13 @@ def _try_parse_json(raw: str) -> Optional[dict]:
     except Exception:
         logging.debug("Failed to decode websocket frame as JSON")
         return None
+
+
+def _emit_rpc_notification(params: dict) -> None:
+    payload = {"jsonrpc": "2.0", "method": "message", "params": params}
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
 
 def _extract_text_and_record(event: dict) -> tuple[Optional[str], Optional[str]]:
