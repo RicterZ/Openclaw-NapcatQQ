@@ -179,6 +179,20 @@ def _run_send_private(args: argparse.Namespace) -> int:
     return 0
 
 
+KEEP_FIELDS = {
+    "self_id",
+    "user_id",
+    "group_id",
+    "group_name",
+    "message_type",
+    "message_id",
+    "raw_message",
+    "message",
+    "resolved_text",
+    "post_type",
+}
+
+
 async def _watch_loop(url: str, from_group: Optional[str], from_user: Optional[str], ignore_prefixes: list[str]) -> None:
     while True:
         try:
@@ -209,7 +223,8 @@ async def _watch_loop(url: str, from_group: Optional[str], from_user: Optional[s
                     resolved = await _resolve_text(text_content, record_file)
                     if resolved:
                         event["resolved_text"] = resolved
-                    sys.stdout.write(json.dumps(event, ensure_ascii=False))
+                    filtered = {k: v for k, v in event.items() if k in KEEP_FIELDS}
+                    sys.stdout.write(json.dumps(filtered, ensure_ascii=False))
                     sys.stdout.write("\n")
                     sys.stdout.flush()
         except asyncio.CancelledError:
