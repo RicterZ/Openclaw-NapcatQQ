@@ -4,10 +4,14 @@ import asyncio
 import base64
 import json
 import logging
+import tempfile
 import uuid
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+import httpx
 import websockets
 
 from .asr import sentence_recognize
@@ -148,7 +152,9 @@ async def _extract_message_content(
             if not image_url:
                 continue
 
-            images.append(image_url)
+            local_path = await _download_media(image_url, media_type="image")
+            if local_path:
+                images.append(local_path)
 
     if record_text:
         text_parts.append(record_text)
@@ -174,6 +180,31 @@ async def _resolve_text(
         return text
     except Exception as exc:  # noqa: BLE001
         logging.debug("ASR failed, skip message: %s", exc)
+        return None
+
+
+async def _download_media(url: str, media_type: str) -> Optional[str]:
+    """Download media to a temp folder and return file:// URI."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return None
+
+    month = datetime.utcnow().strftime("%Y-%m")
+    base_dir = Path(tempfile.gettempdir()) / "napcat" / media_type / month
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    suffix = Path(parsed.path).suffix or ".bin"
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    dest = base_dir / filename
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            dest.write_bytes(resp.content)
+            return dest.resolve().as_uri()
+    except Exception as exc:  # noqa: BLE001
+        logging.debug("Failed to download media %s: %s", url, exc)
         return None
 
 
