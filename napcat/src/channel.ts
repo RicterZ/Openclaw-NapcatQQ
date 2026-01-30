@@ -1,4 +1,4 @@
-import { emptyPluginConfigSchema, getChatChannelMeta, type ChannelLogSink, type ChannelPlugin, type MoltbotConfig } from "clawdbot/plugin-sdk";
+import { emptyPluginConfigSchema, getChatChannelMeta, type ChannelLogSink, type ChannelPlugin, type MoltbotConfig } from "openclaw/plugin-sdk";
 import { getNapcatRuntime } from "./runtime.js";
 import { connectionManager } from "./connection-manager.js";
 

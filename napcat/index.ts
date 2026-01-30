@@ -1,5 +1,5 @@
-import type { ClawdbotPluginApi } from "clawdbot/plugin-sdk";
-import { emptyPluginConfigSchema } from "clawdbot/plugin-sdk";
+import type { OpenclawPluginApi } from "openclaw/plugin-sdk";
+import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 
 import { napcatPlugin } from "./src/channel.js";
 import { setNapcatRuntime } from "./src/runtime.js";
@@ -9,7 +9,7 @@ const plugin = {
   name: "Napcat",
   description: "Napcat channel plugin (JSON-RPC over stdin/stdout)",
   configSchema: emptyPluginConfigSchema(),
-  register(api: ClawdbotPluginApi) {
+  register(api: OpenclawPluginApi) {
     setNapcatRuntime(api.runtime);
     api.registerChannel({ plugin: napcatPlugin });
   },

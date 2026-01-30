@@ -9,10 +9,10 @@ CLI relay that sends messages from moltbot to a Napcat WebSocket backend.
 
 Napcat backend: set env `NAPCAT_URL` (or pass `--napcat-url`).
 
-## Install into Clawdbot (moltbot)
-1) Copy the Napcat plugin folder to the Clawdbot extensions path:
-   - `cp -r napcat ~/.clawdbot/extensions/napcat`
-2) Enable the channel and plugin in your Clawdbot config (e.g. `~/.clawdbot/config.json`):
+## Install into Openclaw
+1) Copy the Napcat plugin folder to the Openclaw extensions path:
+   - `cp -r napcat ~/.openclaw/extensions/napcat`
+2) Enable the channel and plugin in your Openclaw config (e.g. `~/.openclaw/config.json`):
    ```json
    {
      "channels": {
@@ -29,7 +29,7 @@ Napcat backend: set env `NAPCAT_URL` (or pass `--napcat-url`).
      }
    }
    ```
-3) Place your `.env` (with `NAPCAT_URL` and any related variables) in the Clawdbot working directory so the runtime picks it up when launching.
+3) Place your `.env` (with `NAPCAT_URL` and any related variables) in the Openclaw working directory so the runtime picks it up when launching.
 4) Install the CLI/bridge into your environment (installs `nap-msg` entrypoint):
    ```bash
    pip install .
