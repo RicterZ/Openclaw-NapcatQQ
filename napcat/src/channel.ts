@@ -13,26 +13,53 @@ type NapcatRawMessage = {
   images?: string[];
 };
 
+type ParsedTarget = {
+  chatIdRaw: string;
+  isGroup: boolean;
+  canonical: string;
+};
+
 const normalizeId = (value?: string | number | null): string | null => {
   if (value === undefined || value === null) return null;
   const str = String(value).trim();
   return str ? str : null;
 };
 
-const parseTarget = (raw?: string | number | null): { chatId: string; isGroup: boolean } | null => {
+const parseTarget = (raw?: string | number | null): ParsedTarget | null => {
   const id = normalizeId(raw);
   if (!id) return null;
-  const stripped = id.replace(/^napcat:/i, "");
-  const groupMatch = stripped.match(/^group:(.+)$/i);
-  if (groupMatch) return { chatId: groupMatch[1], isGroup: true };
-  return { chatId: stripped, isGroup: false };
+  let trimmed = id.replace(/^napcat:/i, "");
+
+  const groupDash = trimmed.match(/^group-(.+)$/i);
+  if (groupDash) {
+    const chatIdRaw = groupDash[1].trim();
+    if (!chatIdRaw) return null;
+    return { chatIdRaw, isGroup: true, canonical: `group-${chatIdRaw}` };
+  }
+
+  const userDash = trimmed.match(/^user-(.+)$/i);
+  if (userDash) {
+    const chatIdRaw = userDash[1].trim();
+    if (!chatIdRaw) return null;
+    return { chatIdRaw, isGroup: false, canonical: `user-${chatIdRaw}` };
+  }
+
+  const groupMatch = trimmed.match(/^group:(.+)$/i);
+  if (groupMatch) {
+    const chatIdRaw = groupMatch[1].trim();
+    if (!chatIdRaw) return null;
+    return { chatIdRaw, isGroup: true, canonical: `group-${chatIdRaw}` };
+  }
+
+  const chatIdRaw = trimmed;
+  return { chatIdRaw, isGroup: false, canonical: `user-${chatIdRaw}` };
 };
 
-async function sendNapcatMessage(params: { chatId: string; isGroup: boolean; text: string }) {
+async function sendNapcatMessage(params: { chatIdRaw: string; isGroup: boolean; text: string }) {
   await connectionManager.ensureConnected();
   await connectionManager.send("message.send", {
-    chatId: params.chatId,
-    to: params.chatId,
+    chatId: params.chatIdRaw,
+    to: params.chatIdRaw,
     isGroup: params.isGroup,
     text: params.text,
   });
@@ -66,7 +93,7 @@ async function handleNapcatInbound(params: {
   log?: ChannelLogSink;
 }) {
   const runtime = getNapcatRuntime();
-  const chatId = normalizeId(params.raw.chatId);
+  const chatIdRaw = normalizeId(params.raw.chatId);
   const senderId = normalizeId(params.raw.sender);
   const messageId = normalizeId(params.raw.messageId);
   const images = Array.isArray(params.raw.images)
@@ -78,18 +105,19 @@ async function handleNapcatInbound(params: {
     rawBody = images.join("\n");
   }
 
-  if (!chatId || !senderId || (!rawBody && images.length === 0)) {
-    params.log?.debug?.("napcat drop inbound: missing chatId/sender/content");
+  if (!chatIdRaw || (!rawBody && images.length === 0)) {
+    params.log?.debug?.("napcat drop inbound: missing chatId/content");
     return;
   }
   const isGroup = Boolean(params.raw.isGroup);
+  const canonicalChatId = isGroup ? `group-${chatIdRaw}` : `user-${chatIdRaw}`;
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg: params.cfg,
     channel: "napcat",
     accountId: params.accountId,
     peer: {
       kind: isGroup ? "group" : "dm",
-      id: chatId,
+      id: canonicalChatId,
     },
   });
 
@@ -101,7 +129,7 @@ async function handleNapcatInbound(params: {
     storePath,
     sessionKey: route.sessionKey,
   });
-  const fromLabel = isGroup ? `group:${chatId}` : `user:${senderId}`;
+  const fromLabel = isGroup ? `group:${chatIdRaw}` : `user:${senderId ?? chatIdRaw}`;
   const body = runtime.channel.reply.formatAgentEnvelope({
     channel: "Napcat",
     from: fromLabel,
@@ -114,20 +142,20 @@ async function handleNapcatInbound(params: {
     Body: body,
     RawBody: rawBody,
     CommandBody: rawBody,
-    From: isGroup ? `napcat:group:${chatId}` : `napcat:${senderId}`,
-    To: `napcat:${chatId}`,
+    From: `napcat:${canonicalChatId}`,
+    To: `napcat:${canonicalChatId}`,
     SessionKey: route.sessionKey,
     AccountId: route.accountId,
     ChatType: isGroup ? "group" : "direct",
     ConversationLabel: fromLabel,
-    SenderName: senderId,
-    SenderId: senderId,
+    SenderName: senderId ?? undefined,
+    SenderId: senderId ?? chatIdRaw,
     CommandAuthorized: true,
     Provider: "napcat",
     Surface: "napcat",
     MessageSid: messageId ?? undefined,
     OriginatingChannel: "napcat",
-    OriginatingTo: `napcat:${chatId}`,
+    OriginatingTo: `napcat:${canonicalChatId}`,
   });
 
   await runtime.channel.session.recordInboundSession({
@@ -154,7 +182,7 @@ async function handleNapcatInbound(params: {
       deliver: async (payload) => {
         const text = formatNapcatPayloadText(payload, tableMode);
         if (!text) return;
-        await sendNapcatMessage({ chatId, isGroup, text });
+        await sendNapcatMessage({ chatIdRaw, isGroup, text });
         params.setStatus({ accountId: route.accountId, lastOutboundAt: Date.now() });
       },
       onError: (err, info) => {
@@ -242,11 +270,11 @@ export const napcatPlugin: ChannelPlugin<any> = {
       }
       try {
         await sendNapcatMessage({
-          chatId: target.chatId,
+          chatIdRaw: target.chatIdRaw,
           isGroup: target.isGroup,
           text: message,
         });
-        return { channel: "napcat", to: target.chatId, text: message };
+        return { channel: "napcat", to: target.canonical, text: message };
       } catch (error) {
         console.error("Error sending message:", error);
         throw error;
@@ -263,11 +291,11 @@ export const napcatPlugin: ChannelPlugin<any> = {
       }
       try {
         await sendNapcatMessage({
-          chatId: target.chatId,
+          chatIdRaw: target.chatIdRaw,
           isGroup: target.isGroup,
           text: payloadText,
         });
-        return { channel: "napcat", to: target.chatId, mediaUrl, text: payloadText };
+        return { channel: "napcat", to: target.canonical, mediaUrl, text: payloadText };
       } catch (error) {
         console.error("Error sending media:", error);
         throw error;
