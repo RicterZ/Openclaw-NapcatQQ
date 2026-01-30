@@ -10,6 +10,7 @@ type NapcatRawMessage = {
   isGroup?: boolean;
   text?: string | null;
   messageId?: string | number;
+  images?: string[];
 };
 
 const normalizeId = (value?: string | number | null): string | null => {
@@ -68,9 +69,17 @@ async function handleNapcatInbound(params: {
   const chatId = normalizeId(params.raw.chatId);
   const senderId = normalizeId(params.raw.sender);
   const messageId = normalizeId(params.raw.messageId);
-  const rawBody = typeof params.raw.text === "string" ? params.raw.text.trim() : "";
-  if (!chatId || !senderId || !rawBody) {
-    params.log?.debug?.("napcat drop inbound: missing chatId/sender/text");
+  const images = Array.isArray(params.raw.images)
+    ? params.raw.images.filter((img) => typeof img === "string" && img.trim())
+    : [];
+  let rawBody = typeof params.raw.text === "string" ? params.raw.text.trim() : "";
+
+  if (!rawBody && images.length) {
+    rawBody = images.join("\n");
+  }
+
+  if (!chatId || !senderId || (!rawBody && images.length === 0)) {
+    params.log?.debug?.("napcat drop inbound: missing chatId/sender/content");
     return;
   }
   const isGroup = Boolean(params.raw.isGroup);
