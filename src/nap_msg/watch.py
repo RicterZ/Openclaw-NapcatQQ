@@ -23,6 +23,7 @@ KEEP_FIELDS = {
     "message_id",
     "text",
     "images",
+    "videos",
     # "time",
     # "target_id",
 }
@@ -56,7 +57,7 @@ async def watch_forever(
                     if from_user and str(event.get("user_id")) != str(from_user):
                         continue
 
-                    text_content, images = await _extract_message_content(event, ws, url, asr_enabled)
+                    text_content, images, videos = await _extract_message_content(event, ws, url, asr_enabled)
                     if text_content:
                         first_line = next((ln for ln in text_content.splitlines() if ln.strip()), text_content)
                         check_text = first_line.lstrip()
@@ -65,13 +66,15 @@ async def watch_forever(
                             check_text.startswith(pfx) for pfx in ignore_prefixes
                         ):
                             continue
-                    if not text_content and not images:
+                    if not text_content and not images and not videos:
                         continue
 
                     if text_content:
                         event["text"] = text_content
                     if images:
                         event["images"] = images
+                    if videos:
+                        event["videos"] = videos
                     filtered = {k: v for k, v in event.items() if k in KEEP_FIELDS and v is not None}
                     try:
                         maybe_coro = emit(filtered)
@@ -104,12 +107,13 @@ def _event_to_receive_params(event: dict) -> dict:
         "text": event.get("text"),
         "messageId": event.get("message_id"),
         "images": event.get("images"),
+        "videos": event.get("videos"),
     }
 
 
 async def _extract_message_content(
     event: dict, ws, napcat_ws: str, allow_asr: bool
-) -> tuple[Optional[str], list[str]]:
+) -> tuple[Optional[str], list[str], list[str]]:
     message = event.get("message")
     if isinstance(message, str):
         return message, []
@@ -117,6 +121,7 @@ async def _extract_message_content(
         return None, []
     text_parts = []
     images = []
+    videos = []
     record_text = None
     for item in message:
         if not isinstance(item, dict):
@@ -155,12 +160,20 @@ async def _extract_message_content(
             local_path = await _download_media(image_url, media_type="image")
             if local_path:
                 images.append(local_path)
+        elif seg_type == "video":
+            video_url = seg_data.get("url", "")
+            if not video_url:
+                continue
+
+            local_path = await _download_media(video_url, media_type="video")
+            if local_path:
+                videos.append(local_path)
 
     if record_text:
         text_parts.append(record_text)
 
     cleaned = "\n".join(line.strip() for line in text_parts if line and line.strip())
-    return cleaned if cleaned else None, images
+    return cleaned if cleaned else None, images, videos
 
 
 async def _resolve_text(
