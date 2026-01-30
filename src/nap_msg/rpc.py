@@ -13,6 +13,39 @@ from .watch import DEFAULT_IGNORE_PREFIXES, _event_to_receive_params, watch_fore
 
 logger = logging.getLogger(__name__)
 
+def _parse_target_from_params(params: dict) -> tuple[str | None, bool | None]:
+    """
+    Accepts to/chatId/chat_id with optional prefixes:
+    - group-<id> / group:<id> => group
+    - user-<id> / user:<id> / <id> => user
+    Falls back to explicit isGroup flag when provided.
+    """
+    raw_to = params.get("to") or params.get("chatId") or params.get("chat_id")
+    is_group = params.get("isGroup")
+    chat_id: str | None = None
+
+    if isinstance(raw_to, (str, int)):
+        text = str(raw_to).strip()
+        if text.lower().startswith("group-"):
+            chat_id = text[len("group-") :].strip()
+            is_group = True
+        elif text.lower().startswith("group:"):
+            chat_id = text.split(":", 1)[1].strip()
+            is_group = True
+        elif text.lower().startswith("user-"):
+            chat_id = text[len("user-") :].strip()
+            is_group = False
+        elif text.lower().startswith("user:"):
+            chat_id = text.split(":", 1)[1].strip()
+            is_group = False
+        else:
+            chat_id = text
+
+    if isinstance(is_group, str):
+        is_group = is_group.lower() in ("1", "true", "yes", "y")
+
+    return chat_id, is_group if isinstance(is_group, bool) else None
+
 
 class RpcServer:
     def __init__(self) -> None:
@@ -76,9 +109,8 @@ class RpcServer:
 
     async def _handle_message_send(self, params: dict, req_id: Any) -> None:
         text = params.get("text")
-        to = params.get("to") or params.get("chatId") or params.get("chat_id")
-        is_group = params.get("isGroup")
-        if not to or text is None:
+        chat_id, is_group = _parse_target_from_params(params)
+        if not chat_id or text is None:
             self._write_error(req_id, code=-32602, message="to/chatId and text are required")
             return
 
@@ -87,8 +119,8 @@ class RpcServer:
         await self._handle_send(
             {
                 "channel": channel,
-                "group_id": to if is_group else None,
-                "user_id": None if is_group else to,
+                "group_id": chat_id if channel == "group" else None,
+                "user_id": chat_id if channel == "private" else None,
                 "message": message,
                 "napcat_url": params.get("napcat_url"),
                 "timeout": params.get("timeout"),
