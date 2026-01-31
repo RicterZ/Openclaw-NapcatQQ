@@ -63,6 +63,7 @@ class RpcServer:
             line = line.strip()
             if not line:
                 continue
+            logger.info("stdin>%s", line)
             try:
                 request = json.loads(line)
             except Exception as exc:  # noqa: BLE001
