@@ -64,25 +64,34 @@ const parseTarget = (raw?: string | number | null): ParsedTarget | null => {
 
 type ReplyDispatcher = (params: any) => Promise<void>;
 
-function resolveReplyDispatcher(replyApi: Record<string, any>, log?: ChannelLogSink): ReplyDispatcher {
+function resolveReplyDispatchers(replyApi: Record<string, any>, log?: ChannelLogSink): {
+  primary: ReplyDispatcher;
+  fallback?: ReplyDispatcher;
+  primaryLabel: string;
+} {
   const candidates: Array<{ key: string; label: string }> = [
     { key: "dispatchReplyWithStreamingDispatcher", label: "streaming" },
     { key: "createReplyDispatcherWithTyping", label: "typing" },
     { key: "createReplyDispatcher", label: "typing" },
   ];
 
+  let fallback: ReplyDispatcher | undefined;
+  const buffered = replyApi.dispatchReplyWithBufferedBlockDispatcher;
+  if (typeof buffered === "function") {
+    fallback = buffered as ReplyDispatcher;
+  }
+
   for (const candidate of candidates) {
     const fn = replyApi[candidate.key];
     if (typeof fn === "function") {
       log?.debug?.(`[napcat] using ${candidate.label} reply dispatcher (${candidate.key})`);
-      return fn as ReplyDispatcher;
+      return { primary: fn as ReplyDispatcher, fallback, primaryLabel: candidate.label };
     }
   }
 
-  const buffered = replyApi.dispatchReplyWithBufferedBlockDispatcher;
-  if (typeof buffered === "function") {
+  if (fallback) {
     log?.warn?.("[napcat] streaming dispatcher unavailable; falling back to buffered");
-    return buffered as ReplyDispatcher;
+    return { primary: fallback, fallback: undefined, primaryLabel: "buffered" };
   }
 
   throw new Error("napcat: no reply dispatcher available in runtime");
@@ -210,23 +219,53 @@ async function handleNapcatInbound(params: {
   });
 
   const replyApi = runtime.channel.reply as Record<string, any>;
-  const dispatcher = resolveReplyDispatcher(replyApi, params.log);
+  const { primary: dispatcher, fallback: dispatcherFallback, primaryLabel } = resolveReplyDispatchers(
+    replyApi,
+    params.log,
+  );
 
-  await dispatcher({
-    ctx: ctxPayload,
-    cfg: params.cfg,
-    dispatcherOptions: {
-      deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }) => {
-        const text = formatNapcatPayloadText(payload, tableMode);
-        if (!text) return;
-        await sendNapcatMessage({ chatIdRaw, isGroup, text });
-        params.setStatus({ accountId: route.accountId, lastOutboundAt: Date.now() });
+  try {
+    await dispatcher({
+      ctx: ctxPayload,
+      cfg: params.cfg,
+      dispatcherOptions: {
+        deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }) => {
+          const text = formatNapcatPayloadText(payload, tableMode);
+          if (!text) return;
+          await sendNapcatMessage({ chatIdRaw, isGroup, text });
+          params.setStatus({ accountId: route.accountId, lastOutboundAt: Date.now() });
+        },
+        onError: (err: Error, info: { kind: string }) => {
+          params.log?.error?.(`[${route.accountId}] napcat ${info.kind} reply failed: ${String(err)}`);
+        },
       },
-      onError: (err: Error, info: { kind: string }) => {
-        params.log?.error?.(`[${route.accountId}] napcat ${info.kind} reply failed: ${String(err)}`);
-      },
-    },
-  } as any);
+    } as any);
+  } catch (err) {
+    if (dispatcherFallback && primaryLabel !== "buffered") {
+      params.log?.warn?.(
+        `[napcat] primary dispatcher failed (${primaryLabel}), retrying buffered: ${(err as Error).message}`,
+      );
+      await dispatcherFallback({
+        ctx: ctxPayload,
+        cfg: params.cfg,
+        dispatcherOptions: {
+          deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }) => {
+            const text = formatNapcatPayloadText(payload, tableMode);
+            if (!text) return;
+            await sendNapcatMessage({ chatIdRaw, isGroup, text });
+            params.setStatus({ accountId: route.accountId, lastOutboundAt: Date.now() });
+          },
+          onError: (fallbackErr: Error, info: { kind: string }) => {
+            params.log?.error?.(
+              `[${route.accountId}] napcat buffered ${info.kind} reply failed: ${String(fallbackErr)}`,
+            );
+          },
+        },
+      } as any);
+    } else {
+      throw err;
+    }
+  }
 }
 
 // Napcat channel plugin implementation
