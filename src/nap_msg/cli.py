@@ -107,7 +107,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Shortcut for --type forward.",
     )
 
-    subparsers.add_parser("rpc", help="Run JSON-RPC server on stdin/stdout")
+    rpc = subparsers.add_parser("rpc", help="Run JSON-RPC server on stdin/stdout")
+    rpc.add_argument(
+        "--napcat-url",
+        dest="rpc_napcat_url",
+        help="Napcat WebSocket endpoint (override global).",
+    )
+    rpc.add_argument(
+        "--timeout",
+        dest="rpc_timeout",
+        type=float,
+        default=None,
+        help="Response wait timeout in seconds for RPC mode.",
+    )
 
     return parser
 
@@ -203,7 +215,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "send-group":
         return _run_send_group(args)
     if args.command == "rpc":
-        return run_rpc_server(default_url=args.napcat_url, default_timeout=args.timeout)
+        return run_rpc_server(
+            default_url=getattr(args, "rpc_napcat_url", None) or args.napcat_url,
+            default_timeout=getattr(args, "rpc_timeout", None) or args.timeout,
+        )
 
     parser.error(f"Unknown command {args.command}")
     return 2
