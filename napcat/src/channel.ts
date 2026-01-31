@@ -201,8 +201,9 @@ async function handleInboundNapcatMessage(params: {
       },
     });
 
+  // Always allow streaming by default; set channels.napcat.blockStreaming=true to disable.
   const disableBlockStreaming =
-    typeof account.blockStreaming === "boolean" ? !account.blockStreaming : undefined;
+    typeof account.blockStreaming === "boolean" ? account.blockStreaming : false;
 
   const { queuedFinal } = await runtime.channel.reply.dispatchReplyFromConfig({
     ctx: ctxPayload,
@@ -315,7 +316,8 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
     media: true,
   },
   streaming: {
-    blockStreamingCoalesceDefaults: { minChars: 1200, idleMs: 800 },
+    // Minimal coalescing so interim replies flush quickly.
+    blockStreamingCoalesceDefaults: { minChars: 80, idleMs: 250 },
   },
   reload: { configPrefixes: ["channels.napcat"] },
   configSchema: napcatChannelConfigSchema,
