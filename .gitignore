@@ -13,3 +13,5 @@ poetry.lock
 
 # Env files
 .env
+
+vendor

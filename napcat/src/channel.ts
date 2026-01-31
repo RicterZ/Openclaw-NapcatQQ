@@ -1,78 +1,179 @@
 import { emptyPluginConfigSchema, getChatChannelMeta, type ChannelLogSink, type ChannelPlugin, type MoltbotConfig } from "openclaw/plugin-sdk";
-import { getNapcatRuntime } from "./runtime.js";
 import { connectionManager } from "./connection-manager.js";
+import { getNapcatRuntime } from "./runtime.js";
 
 const meta = getChatChannelMeta("napcat");
 
-type NapcatRawMessage = {
+type NapcatRawEvent = {
   sender?: string | number;
   chatId?: string | number;
   isGroup?: boolean;
   text?: string | null;
   messageId?: string | number;
   images?: string[];
+  videos?: string[];
+  files?: string[];
 };
 
-type ParsedTarget = {
+type NapcatNormalizedInbound = {
   chatIdRaw: string;
+  canonicalPeerId: string;
   isGroup: boolean;
-  canonical: string;
+  senderId?: string;
+  senderLabel?: string;
+  messageId?: string;
+  rawBody: string;
+  body: string;
+  attachments: string[];
+  fromLabel: string;
 };
 
-// Drop lone surrogate code units to avoid UTF-8 errors on Windows/Python.
+type NapcatTarget = {
+  chatIdRaw: string;
+  canonical: string;
+  isGroup: boolean;
+};
+
+type ReplyDispatcher = (params: any) => Promise<void>;
+
+type NapcatRuntime = ReturnType<typeof getNapcatRuntime>;
+
 function sanitizeUtf8(text: string): string {
   return text
     .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
     .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
 }
 
-const normalizeId = (value?: string | number | null): string | null => {
+function coerceId(value?: string | number | null): string | null {
   if (value === undefined || value === null) return null;
   const str = String(value).trim();
   return str ? str : null;
-};
+}
 
-const parseTarget = (raw?: string | number | null): ParsedTarget | null => {
-  const id = normalizeId(raw);
+// Streaming is always on for Napcat.
+function resolveStreamingPreference(): boolean {
+  return true;
+}
+
+function normalizeOutboundTarget(raw?: string | number | null): NapcatTarget | null {
+  const id = coerceId(raw);
   if (!id) return null;
-  let trimmed = id.replace(/^napcat:/i, "");
+  let trimmed = id;
+  if (trimmed.toLowerCase().startsWith("napcat:")) {
+    trimmed = trimmed.slice("napcat:".length);
+  }
 
-  const groupDash = trimmed.match(/^group-(.+)$/i);
-  if (groupDash) {
-    const chatIdRaw = groupDash[1].trim();
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith("group-")) {
+    const chatIdRaw = trimmed.slice("group-".length).trim();
     if (!chatIdRaw) return null;
     return { chatIdRaw, isGroup: true, canonical: `group-${chatIdRaw}` };
   }
-
-  const userDash = trimmed.match(/^user-(.+)$/i);
-  if (userDash) {
-    const chatIdRaw = userDash[1].trim();
+  if (lower.startsWith("group:")) {
+    const chatIdRaw = trimmed.slice("group:".length).trim();
+    if (!chatIdRaw) return null;
+    return { chatIdRaw, isGroup: true, canonical: `group-${chatIdRaw}` };
+  }
+  if (lower.startsWith("user-")) {
+    const chatIdRaw = trimmed.slice("user-".length).trim();
     if (!chatIdRaw) return null;
     return { chatIdRaw, isGroup: false, canonical: `user-${chatIdRaw}` };
   }
+  return { chatIdRaw: trimmed, isGroup: false, canonical: `user-${trimmed}` };
+}
 
-  const groupMatch = trimmed.match(/^group:(.+)$/i);
-  if (groupMatch) {
-    const chatIdRaw = groupMatch[1].trim();
-    if (!chatIdRaw) return null;
-    return { chatIdRaw, isGroup: true, canonical: `group-${chatIdRaw}` };
+function normalizeInboundMessage(raw: NapcatRawEvent, log?: ChannelLogSink): NapcatNormalizedInbound | null {
+  const chatIdRaw = coerceId(raw.chatId);
+  const senderId = coerceId(raw.sender);
+  const messageId = coerceId(raw.messageId);
+  const isGroup = Boolean(raw.isGroup);
+  if (!chatIdRaw) {
+    log?.debug?.("[napcat] drop inbound: missing chatId");
+    return null;
   }
 
-  const chatIdRaw = trimmed;
-  return { chatIdRaw, isGroup: false, canonical: `user-${chatIdRaw}` };
-};
+  const attachments: string[] = [];
+  for (const bucket of [raw.images, raw.videos, raw.files]) {
+    if (!Array.isArray(bucket)) continue;
+    for (const entry of bucket) {
+      if (typeof entry === "string") {
+        const trimmed = entry.trim();
+        if (trimmed) attachments.push(trimmed);
+      }
+    }
+  }
 
-type ReplyDispatcher = (params: any) => Promise<void>;
+  const textParts: string[] = [];
+  if (typeof raw.text === "string" && raw.text.trim()) {
+    textParts.push(raw.text.trim());
+  }
+  if (attachments.length) {
+    textParts.push(attachments.join("\n"));
+  }
 
-function shouldUseStreaming(): boolean {
-  const raw = process.env.NAPCAT_STREAMING || process.env.NAPCAT_ENABLE_STREAMING;
-  if (!raw) return false;
-  const flag = raw.trim().toLowerCase();
-  return ["1", "true", "yes", "y", "on"].includes(flag);
+  const joined = sanitizeUtf8(textParts.join("\n").trim());
+  if (!joined) {
+    log?.debug?.("[napcat] drop inbound: empty content");
+    return null;
+  }
+
+  const canonicalPeerId = isGroup ? `group-${chatIdRaw}` : `user-${chatIdRaw}`;
+  const fromLabel = isGroup ? `group:${chatIdRaw}` : `user:${senderId ?? chatIdRaw}`;
+
+  return {
+    chatIdRaw,
+    canonicalPeerId,
+    isGroup,
+    senderId: senderId ?? undefined,
+    senderLabel: senderId ?? chatIdRaw,
+    messageId: messageId ?? undefined,
+    rawBody: joined,
+    body: joined,
+    attachments,
+    fromLabel,
+  };
+}
+
+async function deliverNapcatText(params: {
+  target: NapcatTarget;
+  text: string;
+  accountId: string;
+  setStatus?: (next: any) => void;
+  log?: ChannelLogSink;
+}) {
+  await connectionManager.ensureConnected();
+  await connectionManager.send("message.send", {
+    chatId: params.target.chatIdRaw,
+    to: params.target.chatIdRaw,
+    isGroup: params.target.isGroup,
+    text: sanitizeUtf8(params.text),
+  });
+  params.setStatus?.({ accountId: params.accountId, lastOutboundAt: Date.now(), lastError: null });
+}
+
+function formatNapcatPayloadText(
+  runtime: NapcatRuntime,
+  payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string },
+  tableMode: string,
+): string | null {
+  const parts: string[] = [];
+  if (payload.text?.trim()) parts.push(payload.text);
+  const mediaList = payload.mediaUrls?.length
+    ? payload.mediaUrls
+    : payload.mediaUrl
+      ? [payload.mediaUrl]
+      : [];
+  if (mediaList.length) {
+    parts.push(mediaList.join("\n"));
+  }
+  const joined = parts.join("\n").trim();
+  if (!joined) return null;
+  const converted = runtime.channel.text.convertMarkdownTables(joined, tableMode);
+  return sanitizeUtf8(converted);
 }
 
 function resolveReplyDispatchers(
-  replyApi: Record<string, any>,
+  runtime: NapcatRuntime,
   preferStreaming: boolean,
   log?: ChannelLogSink,
 ): {
@@ -80,6 +181,7 @@ function resolveReplyDispatchers(
   fallback?: ReplyDispatcher;
   primaryLabel: string;
 } {
+  const replyApi = runtime.channel.reply as Record<string, any>;
   const candidates: Array<{ key: string; label: string }> = preferStreaming
     ? [
         { key: "dispatchReplyWithStreamingDispatcher", label: "streaming" },
@@ -110,108 +212,58 @@ function resolveReplyDispatchers(
   throw new Error("napcat: no reply dispatcher available in runtime");
 }
 
-async function sendNapcatMessage(params: { chatIdRaw: string; isGroup: boolean; text: string }) {
-  await connectionManager.ensureConnected();
-  await connectionManager.send("message.send", {
-    chatId: params.chatIdRaw,
-    to: params.chatIdRaw,
-    isGroup: params.isGroup,
-    text: sanitizeUtf8(params.text),
-  });
-}
-
-function formatNapcatPayloadText(
-  payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string },
-  tableMode: string,
-): string | null {
-  const runtime = getNapcatRuntime();
-  const parts: string[] = [];
-  if (payload.text?.trim()) parts.push(payload.text);
-  const mediaList = payload.mediaUrls?.length
-    ? payload.mediaUrls
-    : payload.mediaUrl
-      ? [payload.mediaUrl]
-      : [];
-  if (mediaList.length) {
-    parts.push(mediaList.join("\n"));
-  }
-  const joined = parts.join("\n").trim();
-  if (!joined) return null;
-  const converted = runtime.channel.text.convertMarkdownTables(joined, tableMode);
-  return sanitizeUtf8(converted);
-}
-
-async function handleNapcatInbound(params: {
-  raw: NapcatRawMessage;
+async function buildReplyContext(params: {
+  normalized: NapcatNormalizedInbound;
   cfg: MoltbotConfig;
   accountId: string;
-  setStatus: (next: any) => void;
+  runtime: NapcatRuntime;
   log?: ChannelLogSink;
 }) {
-  const runtime = getNapcatRuntime();
-  const chatIdRaw = normalizeId(params.raw.chatId);
-  const senderId = normalizeId(params.raw.sender);
-  const messageId = normalizeId(params.raw.messageId);
-  const images = Array.isArray(params.raw.images)
-    ? params.raw.images.filter((img) => typeof img === "string" && img.trim())
-    : [];
-  let rawBody = typeof params.raw.text === "string" ? params.raw.text.trim() : "";
-
-  if (!rawBody && images.length) {
-    rawBody = images.join("\n");
-  }
-
-  if (!chatIdRaw || (!rawBody && images.length === 0)) {
-    params.log?.debug?.("napcat drop inbound: missing chatId/content");
-    return;
-  }
-  const isGroup = Boolean(params.raw.isGroup);
-  const canonicalChatId = isGroup ? `group-${chatIdRaw}` : `user-${chatIdRaw}`;
+  const { normalized, cfg, accountId, runtime } = params;
   const route = runtime.channel.routing.resolveAgentRoute({
-    cfg: params.cfg,
+    cfg,
     channel: "napcat",
-    accountId: params.accountId,
+    accountId,
     peer: {
-      kind: isGroup ? "group" : "dm",
-      id: canonicalChatId,
+      kind: normalized.isGroup ? "group" : "dm",
+      id: normalized.canonicalPeerId,
     },
   });
 
-  const storePath = runtime.channel.session.resolveStorePath(params.cfg.session?.store, {
+  const storePath = runtime.channel.session.resolveStorePath(cfg.session?.store, {
     agentId: route.agentId,
   });
-  const envelopeOptions = runtime.channel.reply.resolveEnvelopeFormatOptions(params.cfg);
+  const envelopeOptions = runtime.channel.reply.resolveEnvelopeFormatOptions(cfg);
   const previousTimestamp = runtime.channel.session.readSessionUpdatedAt({
     storePath,
     sessionKey: route.sessionKey,
   });
-  const fromLabel = isGroup ? `group:${chatIdRaw}` : `user:${senderId ?? chatIdRaw}`;
-  const body = runtime.channel.reply.formatAgentEnvelope({
+  const envelopeBody = runtime.channel.reply.formatAgentEnvelope({
     channel: "Napcat",
-    from: fromLabel,
+    from: normalized.fromLabel,
     previousTimestamp,
     envelope: envelopeOptions,
-    body: rawBody,
+    body: normalized.body,
   });
 
   const ctxPayload = runtime.channel.reply.finalizeInboundContext({
-    Body: body,
-    RawBody: rawBody,
-    CommandBody: rawBody,
-    From: `napcat:${canonicalChatId}`,
-    To: `napcat:${canonicalChatId}`,
+    Body: envelopeBody,
+    RawBody: normalized.rawBody,
+    CommandBody: normalized.rawBody,
+    From: `napcat:${normalized.canonicalPeerId}`,
+    To: `napcat:${normalized.canonicalPeerId}`,
     SessionKey: route.sessionKey,
     AccountId: route.accountId,
-    ChatType: isGroup ? "group" : "direct",
-    ConversationLabel: fromLabel,
-    SenderName: senderId ?? undefined,
-    SenderId: senderId ?? chatIdRaw,
+    ChatType: normalized.isGroup ? "group" : "direct",
+    ConversationLabel: normalized.fromLabel,
+    SenderName: normalized.senderLabel ?? undefined,
+    SenderId: normalized.senderId ?? normalized.chatIdRaw,
     CommandAuthorized: true,
     Provider: "napcat",
     Surface: "napcat",
-    MessageSid: messageId ?? undefined,
+    MessageSid: normalized.messageId ?? undefined,
     OriginatingChannel: "napcat",
-    OriginatingTo: `napcat:${canonicalChatId}`,
+    OriginatingTo: `napcat:${normalized.canonicalPeerId}`,
   });
 
   await runtime.channel.session.recordInboundSession({
@@ -219,71 +271,82 @@ async function handleNapcatInbound(params: {
     sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
     ctx: ctxPayload,
     onRecordError: (err) => {
-      params.log?.error?.(`napcat: failed to update session meta: ${String(err)}`);
+      params.log?.error?.(`[napcat] failed to update session meta: ${String(err)}`);
     },
   });
 
-  params.setStatus({ accountId: route.accountId, lastInboundAt: Date.now(), lastError: null });
-
   const tableMode = runtime.channel.text.resolveMarkdownTableMode({
-    cfg: params.cfg,
+    cfg,
     channel: "napcat",
     accountId: route.accountId,
   });
 
-  const replyApi = runtime.channel.reply as Record<string, any>;
-  const preferStreaming = shouldUseStreaming();
-  const { primary: dispatcher, fallback: dispatcherFallback, primaryLabel } = resolveReplyDispatchers(
-    replyApi,
-    preferStreaming,
-    params.log,
-  );
+  return { ctxPayload, route, tableMode };
+}
+
+async function handleNapcatInbound(params: {
+  raw: NapcatRawEvent;
+  cfg: MoltbotConfig;
+  accountId: string;
+  setStatus: (next: any) => void;
+  log?: ChannelLogSink;
+}) {
+  const runtime = getNapcatRuntime();
+  const normalized = normalizeInboundMessage(params.raw, params.log);
+  if (!normalized) return;
+
+  const { ctxPayload, route, tableMode } = await buildReplyContext({
+    normalized,
+    cfg: params.cfg,
+    accountId: params.accountId,
+    runtime,
+    log: params.log,
+  });
+
+  params.setStatus({ accountId: route.accountId, lastInboundAt: Date.now(), lastError: null });
+
+  const preferStreaming = resolveStreamingPreference();
+  const { primary, fallback, primaryLabel } = resolveReplyDispatchers(runtime, preferStreaming, params.log);
+
+  const dispatcherParams = {
+    ctx: ctxPayload,
+    cfg: params.cfg,
+    dispatcherOptions: {
+      deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }) => {
+        const text = formatNapcatPayloadText(runtime, payload, tableMode);
+        if (!text) return;
+        await deliverNapcatText({
+          target: {
+            chatIdRaw: normalized.chatIdRaw,
+            canonical: normalized.canonicalPeerId,
+            isGroup: normalized.isGroup,
+          },
+          text,
+          accountId: route.accountId,
+          setStatus: params.setStatus,
+          log: params.log,
+        });
+      },
+      onError: (err: Error, info: { kind: string }) => {
+        params.log?.error?.(`[${route.accountId}] napcat ${info.kind} reply failed: ${String(err)}`);
+      },
+    },
+  };
 
   try {
-    await dispatcher({
-      ctx: ctxPayload,
-      cfg: params.cfg,
-      dispatcherOptions: {
-        deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }) => {
-          const text = formatNapcatPayloadText(payload, tableMode);
-          if (!text) return;
-          await sendNapcatMessage({ chatIdRaw, isGroup, text });
-          params.setStatus({ accountId: route.accountId, lastOutboundAt: Date.now() });
-        },
-        onError: (err: Error, info: { kind: string }) => {
-          params.log?.error?.(`[${route.accountId}] napcat ${info.kind} reply failed: ${String(err)}`);
-        },
-      },
-    } as any);
+    await primary(dispatcherParams as any);
   } catch (err) {
-    if (dispatcherFallback && primaryLabel !== "buffered") {
+    if (fallback && primaryLabel !== "buffered") {
       params.log?.warn?.(
         `[napcat] primary dispatcher failed (${primaryLabel}), retrying buffered: ${(err as Error).message}`,
       );
-      await dispatcherFallback({
-        ctx: ctxPayload,
-        cfg: params.cfg,
-        dispatcherOptions: {
-          deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }) => {
-            const text = formatNapcatPayloadText(payload, tableMode);
-            if (!text) return;
-            await sendNapcatMessage({ chatIdRaw, isGroup, text });
-            params.setStatus({ accountId: route.accountId, lastOutboundAt: Date.now() });
-          },
-          onError: (fallbackErr: Error, info: { kind: string }) => {
-            params.log?.error?.(
-              `[${route.accountId}] napcat buffered ${info.kind} reply failed: ${String(fallbackErr)}`,
-            );
-          },
-        },
-      } as any);
+      await fallback(dispatcherParams as any);
     } else {
       throw err;
     }
   }
 }
 
-// Napcat channel plugin implementation
 export const napcatPlugin: ChannelPlugin<any> = {
   id: "napcat",
   meta: { ...meta, aliases: ["nap"] },
@@ -291,12 +354,15 @@ export const napcatPlugin: ChannelPlugin<any> = {
     chatTypes: ["direct", "group"],
     media: true,
   },
+  streaming: {
+    blockStreamingCoalesceDefaults: { minChars: 1200, idleMs: 800 },
+  },
   configSchema: emptyPluginConfigSchema(),
   config: {
     listAccountIds: () => ["default"],
     resolveAccount: (_cfg, accountId) => ({
-      accountId,
-      name: accountId,
+      accountId: accountId ?? "default",
+      name: accountId ?? "default",
       enabled: true,
       configured: true,
       config: {},
@@ -340,16 +406,14 @@ export const napcatPlugin: ChannelPlugin<any> = {
       configured: Boolean(account.configured ?? true),
     }),
     resolveAllowFrom: () => [],
-    resolveRequireAttentionPrefix: () => null,
-    resolveToolPolicy: () => "allow",
   },
   outbound: {
     deliveryMode: "direct",
     chunker: (text) => [text],
     chunkerMode: "text",
     textChunkLimit: 4000,
-    sendText: async ({ to, text }) => {
-      const target = parseTarget(to);
+    sendText: async ({ to, text, accountId }) => {
+      const target = normalizeOutboundTarget(to);
       if (!target) {
         throw new Error("napcat target is required");
       }
@@ -357,20 +421,15 @@ export const napcatPlugin: ChannelPlugin<any> = {
       if (!message) {
         throw new Error("napcat message text is empty");
       }
-      try {
-        await sendNapcatMessage({
-          chatIdRaw: target.chatIdRaw,
-          isGroup: target.isGroup,
-          text: message,
-        });
-        return { channel: "napcat", to: target.canonical, text: message };
-      } catch (error) {
-        console.error("Error sending message:", error);
-        throw error;
-      }
+      await deliverNapcatText({
+        target,
+        text: message,
+        accountId: accountId ?? "default",
+      });
+      return { channel: "napcat", to: target.canonical, text: message };
     },
-    sendMedia: async ({ to, mediaUrl, text }) => {
-      const target = parseTarget(to);
+    sendMedia: async ({ to, mediaUrl, text, accountId }) => {
+      const target = normalizeOutboundTarget(to);
       if (!target) {
         throw new Error("napcat target is required");
       }
@@ -378,17 +437,12 @@ export const napcatPlugin: ChannelPlugin<any> = {
       if (!payloadText) {
         throw new Error("napcat message text is empty");
       }
-      try {
-        await sendNapcatMessage({
-          chatIdRaw: target.chatIdRaw,
-          isGroup: target.isGroup,
-          text: payloadText,
-        });
-        return { channel: "napcat", to: target.canonical, mediaUrl, text: payloadText };
-      } catch (error) {
-        console.error("Error sending media:", error);
-        throw error;
-      }
+      await deliverNapcatText({
+        target,
+        text: payloadText,
+        accountId: accountId ?? "default",
+      });
+      return { channel: "napcat", to: target.canonical, mediaUrl, text: payloadText };
     },
   },
   status: {
@@ -400,6 +454,8 @@ export const napcatPlugin: ChannelPlugin<any> = {
       lastError: null,
       cliPath: null,
       dbPath: null,
+      lastInboundAt: null,
+      lastOutboundAt: null,
     },
     collectStatusIssues: () => [],
     buildChannelSummary: ({ snapshot }) => ({
@@ -441,29 +497,36 @@ export const napcatPlugin: ChannelPlugin<any> = {
   gateway: {
     startAccount: async (ctx) => {
       ctx.log?.info(`[${ctx.account.accountId}] napcat plugin starting`);
-
-      // Subscribe to incoming messages from nap-msg RPC
-      const unsubscribe = connectionManager.subscribe((message) => {
-        try {
-          void handleNapcatInbound({
-            raw: message as NapcatRawMessage,
-            cfg: ctx.cfg,
-            accountId: ctx.account.accountId,
-            setStatus: ctx.setStatus,
-            log: ctx.log,
-          });
-        } catch (err) {
-          ctx.log?.error?.(
-            `napcat inbound dispatch failed: ${(err as Error).stack || (err as Error).message}`
-          );
-        }
+      ctx.setStatus({
+        accountId: ctx.account.accountId,
+        running: true,
+        lastStartAt: Date.now(),
+        lastError: null,
       });
 
-      // Ensure the connection is established
+      const unsubscribe = connectionManager.subscribe((message) => {
+        handleNapcatInbound({
+          raw: message as NapcatRawEvent,
+          cfg: ctx.cfg,
+          accountId: ctx.account.accountId,
+          setStatus: ctx.setStatus,
+          log: ctx.log,
+        }).catch((err) => {
+          ctx.log?.error?.(
+            `napcat inbound dispatch failed: ${(err as Error).stack || (err as Error).message}`,
+          );
+        });
+      });
+
       await connectionManager.ensureConnected();
 
       return async () => {
         ctx.log?.info(`[${ctx.account.accountId}] napcat plugin stopping`);
+        ctx.setStatus({
+          accountId: ctx.account.accountId,
+          running: false,
+          lastStopAt: Date.now(),
+        });
         try {
           unsubscribe();
         } catch (e) {
