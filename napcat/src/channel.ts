@@ -62,6 +62,32 @@ const parseTarget = (raw?: string | number | null): ParsedTarget | null => {
   return { chatIdRaw, isGroup: false, canonical: `user-${chatIdRaw}` };
 };
 
+type ReplyDispatcher = (params: any) => Promise<void>;
+
+function resolveReplyDispatcher(replyApi: Record<string, any>, log?: ChannelLogSink): ReplyDispatcher {
+  const candidates: Array<{ key: string; label: string }> = [
+    { key: "dispatchReplyWithStreamingDispatcher", label: "streaming" },
+    { key: "createReplyDispatcherWithTyping", label: "typing" },
+    { key: "createReplyDispatcher", label: "typing" },
+  ];
+
+  for (const candidate of candidates) {
+    const fn = replyApi[candidate.key];
+    if (typeof fn === "function") {
+      log?.debug?.(`[napcat] using ${candidate.label} reply dispatcher (${candidate.key})`);
+      return fn as ReplyDispatcher;
+    }
+  }
+
+  const buffered = replyApi.dispatchReplyWithBufferedBlockDispatcher;
+  if (typeof buffered === "function") {
+    log?.warn?.("[napcat] streaming dispatcher unavailable; falling back to buffered");
+    return buffered as ReplyDispatcher;
+  }
+
+  throw new Error("napcat: no reply dispatcher available in runtime");
+}
+
 async function sendNapcatMessage(params: { chatIdRaw: string; isGroup: boolean; text: string }) {
   await connectionManager.ensureConnected();
   await connectionManager.send("message.send", {
@@ -183,19 +209,8 @@ async function handleNapcatInbound(params: {
     accountId: route.accountId,
   });
 
-  const replyApi = runtime.channel.reply as unknown as {
-    createReplyDispatcherWithTyping?: (params: unknown) => Promise<void>;
-    dispatchReplyWithBufferedBlockDispatcher: (params: unknown) => Promise<void>;
-  };
-
-  const dispatcher =
-    typeof replyApi.createReplyDispatcherWithTyping === "function"
-      ? replyApi.createReplyDispatcherWithTyping
-      : replyApi.dispatchReplyWithBufferedBlockDispatcher;
-
-  if (dispatcher === replyApi.dispatchReplyWithBufferedBlockDispatcher && params.log?.warn) {
-    params.log.warn("[napcat] streaming dispatcher unavailable; falling back to buffered");
-  }
+  const replyApi = runtime.channel.reply as Record<string, any>;
+  const dispatcher = resolveReplyDispatcher(replyApi, params.log);
 
   await dispatcher({
     ctx: ctxPayload,
