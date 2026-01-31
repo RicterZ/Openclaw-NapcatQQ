@@ -183,7 +183,21 @@ async function handleNapcatInbound(params: {
     accountId: route.accountId,
   });
 
-  await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+  const replyApi = runtime.channel.reply as unknown as {
+    createReplyDispatcherWithTyping?: (params: unknown) => Promise<void>;
+    dispatchReplyWithBufferedBlockDispatcher: (params: unknown) => Promise<void>;
+  };
+
+  const dispatcher =
+    typeof replyApi.createReplyDispatcherWithTyping === "function"
+      ? replyApi.createReplyDispatcherWithTyping
+      : replyApi.dispatchReplyWithBufferedBlockDispatcher;
+
+  if (dispatcher === replyApi.dispatchReplyWithBufferedBlockDispatcher && params.log?.warn) {
+    params.log.warn("[napcat] streaming dispatcher unavailable; falling back to buffered");
+  }
+
+  await dispatcher({
     ctx: ctxPayload,
     cfg: params.cfg,
     dispatcherOptions: {
