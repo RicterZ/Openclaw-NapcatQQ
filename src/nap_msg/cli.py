@@ -218,7 +218,6 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     base_name = f"{secrets.token_hex(4)}.%(ext)s"
     output_tmpl = target_dir / base_name
     base_opts = {
-        "live_from_start": False,
         "outtmpl": str(output_tmpl),
         "outtmpl_na_placeholder": "video",
         "restrictfilenames": True,
@@ -243,7 +242,7 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     if is_live:
         opts["download_ranges"] = {"ranges": [{"start_time": 0, "end_time": 30}], "force_keyframes": True}
         opts["force_keyframes_at_cuts"] = True
-        opts["live_from_start"] = True
+        opts["live_from_start"] = False
 
     logging.debug("Downloading video via yt-dlp live=%s url=%s", is_live, video_url)
     try:
