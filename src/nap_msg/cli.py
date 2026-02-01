@@ -214,10 +214,10 @@ def _video_url_segment(video_url: str) -> Optional[VideoMessage]:
 def _download_video_url(video_url: str) -> Optional[Path]:
     """Download a video/stream URL via yt-dlp and return the saved file path."""
     target_dir = Path(tempfile.mkdtemp(prefix="nap-msg-video-"))
-    output_tmpl = target_dir / "%(title).200B-%(id)s.%(ext)s"
-
+    output_tmpl = target_dir / "%(id)s.%(ext)s"
     base_opts = {
         "outtmpl": str(output_tmpl),
+        "outtmpl_na_placeholder": "video",
         "restrictfilenames": True,
         "quiet": True,
         "no_warnings": True,
