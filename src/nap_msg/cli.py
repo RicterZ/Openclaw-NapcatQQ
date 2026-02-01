@@ -225,7 +225,6 @@ def _download_video_url(video_url: str) -> Optional[Path]:
         "nopart": True,
         "no_live_from_start": True,
         "force_keyframes_at_cuts": True,
-        "fixup": "never",
         "downloader_args": {
             "hls": [
                 "-allowed_extensions",
@@ -236,12 +235,6 @@ def _download_video_url(video_url: str) -> Optional[Path]:
                 "file,http,https,tcp,tls,crypto",
             ]
         },
-        "postprocessor_args": {
-            "ffmpeg": [
-                "-bsf:v", "h264_mp4toannexb",
-                "-err_detect", "ignore_err"
-            ]
-        }
     }
 
     opts = dict(base_opts)
