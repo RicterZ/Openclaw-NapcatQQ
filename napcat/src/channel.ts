@@ -362,6 +362,60 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
     chunker: (text, limit) => getNapcatRuntime().channel.text.chunkMarkdownText(text, limit),
     chunkerMode: "markdown",
     textChunkLimit: 4000,
+    sendText: async ({ to, text, accountId, cfg, replyToId }) => {
+      const runtime = getNapcatRuntime();
+      const account = resolveNapcatAccount({ cfg, accountId });
+      if (!account.configured) {
+        throw new Error("Napcat URL not configured (set channels.napcat.url or NAPCAT_URL)");
+      }
+      const parsedTarget = normalizeNapcatTarget(to);
+      if (!parsedTarget) {
+        throw new Error(`Invalid Napcat target: ${to}`);
+      }
+      const { client, release } = await getClient(account);
+      try {
+        await deliverNapcatReplies({
+          replies: [{ text, replyToId }],
+          target: parsedTarget,
+          client,
+          account,
+          cfg,
+          runtime,
+        });
+        return { channel: "napcat", messageId: `${Date.now()}`, chatId: parsedTarget.id };
+      } finally {
+        if (release) {
+          await release();
+        }
+      }
+    },
+    sendMedia: async ({ to, text, mediaUrl, accountId, cfg, replyToId }) => {
+      const runtime = getNapcatRuntime();
+      const account = resolveNapcatAccount({ cfg, accountId });
+      if (!account.configured) {
+        throw new Error("Napcat URL not configured (set channels.napcat.url or NAPCAT_URL)");
+      }
+      const parsedTarget = normalizeNapcatTarget(to);
+      if (!parsedTarget) {
+        throw new Error(`Invalid Napcat target: ${to}`);
+      }
+      const { client, release } = await getClient(account);
+      try {
+        await deliverNapcatReplies({
+          replies: [{ text, mediaUrl, replyToId }],
+          target: parsedTarget,
+          client,
+          account,
+          cfg,
+          runtime,
+        });
+        return { channel: "napcat", messageId: `${Date.now()}`, chatId: parsedTarget.id };
+      } finally {
+        if (release) {
+          await release();
+        }
+      }
+    },
     sendPayload: async ({ to, payload, accountId, cfg }) => {
       const runtime = getNapcatRuntime();
       const account = resolveNapcatAccount({ cfg, accountId });
@@ -382,7 +436,7 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
           cfg,
           runtime,
         });
-        return { channel: "napcat", to: parsedTarget.id };
+        return { channel: "napcat", messageId: `${Date.now()}`, chatId: parsedTarget.id };
       } finally {
         if (release) {
           await release();
