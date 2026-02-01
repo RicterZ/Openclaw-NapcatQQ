@@ -222,9 +222,6 @@ def _download_video_url(video_url: str) -> Optional[Path]:
         "outtmpl": str(output_tmpl),
         "outtmpl_na_placeholder": "video",
         "restrictfilenames": True,
-        "quiet": True,
-        "no_warnings": True,
-        "noprogress": True,
         "nopart": True,
         "downloader_args": {
             "hls": [
