@@ -351,7 +351,13 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
     }),
   },
   messaging: {
-    normalizeTarget: (target) => normalizeNapcatTarget(target)?.id ?? target.trim(),
+    normalizeTarget: (target) => {
+      const parsed = normalizeNapcatTarget(target);
+      if (!parsed) return target.trim();
+      return parsed.channel === "group"
+        ? `napcat:group:${parsed.id}`
+        : `napcat:${parsed.id}`;
+    },
     targetResolver: {
       looksLikeId: (id) => Boolean(normalizeNapcatTarget(id)),
       hint: "<napcat:group:<id>|napcat:<userId>>",
