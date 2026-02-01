@@ -215,7 +215,8 @@ def _video_url_segment(video_url: str) -> Optional[VideoMessage]:
 def _download_video_url(video_url: str) -> Optional[Path]:
     """Download a video/stream URL via yt-dlp and return the saved file path."""
     target_dir = Path(tempfile.mkdtemp(prefix="nap-msg-video-"))
-    output_tmpl = target_dir / "%(id)s.%(ext)s"
+    base_name = f"{secrets.token_hex(4)}.%(ext)s"
+    output_tmpl = target_dir / base_name
     base_opts = {
         "outtmpl": str(output_tmpl),
         "outtmpl_na_placeholder": "video",
@@ -250,17 +251,6 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     except Exception as exc:  # noqa: BLE001
         logging.exception("Failed to locate downloaded video")
         return None
-
-    try:
-        ext = video_file.suffix or ".mp4"
-        short_name = f"{secrets.token_hex(4)}{ext}"
-        short_path = video_file.with_name(short_name)
-        if short_path.exists():
-            short_path.unlink()
-        video_file.rename(short_path)
-        video_file = short_path
-    except Exception:  # noqa: BLE001
-        logging.debug("Failed to shorten filename; using original")
 
     logging.debug("Downloaded video to %s", video_file)
     return video_file
