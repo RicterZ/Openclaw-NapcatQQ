@@ -206,7 +206,7 @@ def _print_response(response: dict) -> None:
 
 
 def _video_url_segment(video_url: str) -> Optional[VideoMessage]:
-    sys.stderr.write("Downloading video, please wait up to 60s...\n")
+    print("Downloading video, please wait up to 60s...")
     path = _download_video_url(video_url)
     if not path:
         return None
