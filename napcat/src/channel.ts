@@ -162,15 +162,14 @@ async function handleInboundNapcatMessage(params: {
       ? `napcat:group:${target.id}`
       : `napcat:${senderId || target.id}`;
 
-  const agentId = (route.agentId || "main").trim() || "main";
   const baseSessionKey =
     (route.sessionKey && route.sessionKey.trim()) ||
     `napcat:${target.channel}:${target.id || senderId || "unknown"}`;
   const baseMainSessionKey =
     (route.mainSessionKey && route.mainSessionKey.trim()) || baseSessionKey;
 
-  const sessionKey = `agent:${agentId}:${baseSessionKey}`;
-  const mainSessionKey = `agent:${agentId}:${baseMainSessionKey}`;
+  const sessionKey = baseSessionKey;
+  const mainSessionKey = baseMainSessionKey;
 
   const ctxPayload = runtime.channel.reply.finalizeInboundContext({
     Body: body,
