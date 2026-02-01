@@ -225,6 +225,16 @@ def _download_video_url(video_url: str) -> Optional[Path]:
         "no_warnings": True,
         "noprogress": True,
         "nopart": True,
+        "downloader_args": {
+            "hls": [
+                "-allowed_extensions",
+                "ALL",
+                "-extension_picky",
+                "0",
+                "-protocol_whitelist",
+                "file,http,https,tcp,tls,crypto",
+            ]
+        },
     }
 
     is_live = _probe_is_live_api(video_url, base_opts)
