@@ -63,13 +63,6 @@ function normalizeNapcatTarget(raw: string): NapcatTarget | null {
   return { channel, id };
 }
 
-function ensureAgentSessionKey(rawKey: string | undefined, agentId: string): string {
-  const key = (rawKey ?? "").trim();
-  if (key.startsWith("agent:")) return key;
-  const safeAgent = (agentId || "main").trim() || "main";
-  return `agent:${safeAgent}:${key || "default"}`;
-}
-
 async function getClient(account: ResolvedNapcatAccount): Promise<{
   client: NapcatRpcClient;
   release?: () => Promise<void>;
@@ -169,14 +162,15 @@ async function handleInboundNapcatMessage(params: {
       ? `napcat:group:${target.id}`
       : `napcat:${senderId || target.id}`;
 
+  const agentId = (route.agentId || "main").trim() || "main";
   const baseSessionKey =
     (route.sessionKey && route.sessionKey.trim()) ||
     `napcat:${target.channel}:${target.id || senderId || "unknown"}`;
   const baseMainSessionKey =
     (route.mainSessionKey && route.mainSessionKey.trim()) || baseSessionKey;
 
-  const sessionKey = ensureAgentSessionKey(baseSessionKey, route.agentId);
-  const mainSessionKey = ensureAgentSessionKey(baseMainSessionKey, route.agentId);
+  const sessionKey = `agent:${agentId}:${baseSessionKey}`;
+  const mainSessionKey = `agent:${agentId}:${baseMainSessionKey}`;
 
   const ctxPayload = runtime.channel.reply.finalizeInboundContext({
     Body: body,
