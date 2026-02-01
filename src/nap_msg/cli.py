@@ -249,8 +249,10 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     except Exception as exc:  # noqa: BLE001
         logging.exception("Failed to locate downloaded video")
         return None
-    logging.debug("Downloaded video to %s", video_file)
-    return video_file
+
+    renamed = _rename_short(video_file)
+    logging.debug("Downloaded video to %s", renamed)
+    return renamed
 
 
 def _probe_is_live_api(video_url: str, base_opts: dict) -> bool:
@@ -270,6 +272,22 @@ def _pick_downloaded_file(target_dir: Path) -> Path:
     if not candidates:
         raise RuntimeError(f"No video file downloaded into {target_dir}")
     return max(candidates, key=lambda p: p.stat().st_size)
+
+
+def _rename_short(video_path: Path) -> Path:
+    """Rename downloaded file to a short, safe name in place."""
+    try:
+        ext = video_path.suffix or ".mp4"
+        target = video_path.with_name(f"video{ext}")
+        if target == video_path:
+            return video_path
+        if target.exists():
+            target.unlink()
+        video_path.rename(target)
+        return target
+    except Exception:  # noqa: BLE001
+        logging.debug("Failed to rename downloaded video; using original path")
+        return video_path
 
 
 def _iter_video_files(target_dir: Path) -> Iterable[Path]:
