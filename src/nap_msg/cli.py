@@ -240,7 +240,10 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     is_live = _probe_is_live_api(video_url, base_opts)
     opts = dict(base_opts)
     if is_live:
-        opts["download_ranges"] = {"ranges": [{"start_time": 0, "end_time": 30}], "force_keyframes": True}
+        opts["download_ranges"] = lambda a, b: [{
+            "start_time": 0,
+            "end_time": 30,
+        }]
         opts["force_keyframes_at_cuts"] = True
         opts["live_from_start"] = False
 
