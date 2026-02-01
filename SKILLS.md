@@ -1,19 +1,29 @@
-# QQ Message Skill (nap-msg)
+Use `nap-msg` to send / receive QQ messages for moltbot.
+Read necessary environment variables from `.env` file.
 
-Env vars load automatically (including from a local `.env`).
+### Send Messages
+#### Commands
 
-## CLI
 - Private: `nap-msg send <user_id> [segments...]`
 - Group: `nap-msg send-group <group_id> [segments...]`
-- Multi Messages in one card: `nap-msg send-group <group_id> --forward [segments...]`
-- Segments (order preserved): `-t/--text`, `-i/--image`, `-v/--video`, `-f/--file`, `-r/--reply`, `--video-url`
-- Video download: `--video-url <url>` downloads video from link as a video message.
-- Note: Normal send supports text + image only; for other mixes use forward.
+- Forward (group multimodal): `nap-msg send-group <group_id> --forward [segments...]`
 
-## JSON-RPC (stdio)
-- Start server: `nap-msg rpc`
-- Methods:
-  - `initialize` → responds with capabilities `{streaming:true, attachments:true}`
-  - `message.send` (`to`/`chatId`, optional `isGroup`, `text`)
-  - `messages.history` → returns `{messages: []}` (not implemented)
-  - `chats.list` → returns `[]`
+#### Segments
+Segment flags can be mixed/repeated; the order you type is the order sent. Normal send can mix text + image only; other mixes use forward.
+
+- `-t/--text "<text>"`
+- `-i/--image "<path_or_url>"`
+- `-v/--video "<path_or_url>"`
+- `-f/--file "<path>"`
+- `-r/--reply "<message_id>"`
+- `--video-url "<url>"` (downloads link and sends as video; live streams send a short clip)
+
+### Receive Messages
+#### Commands
+
+- Watch incoming QQ messages as JSON: `nap-msg watch`
+
+#### Output
+
+- Private: `{"user_id": 312641104, "message_id": 1466193708, "message_type": "group", "raw_message": "test", "group_id": 2158015541}`
+- Group: `{"user_id": 312641104, "message_id": 380822531, "message_type": "private", "raw_message": "test private message"}`
