@@ -240,16 +240,16 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     opts = dict(base_opts)
     opts.setdefault("external_downloader_args", {})["ffmpeg"] = ["-t", "30"]
 
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            result = ydl.download([video_url])
-    except Exception as exc:  # noqa: BLE001
-        logging.exception("yt-dlp download failed")
-        return None
+    for _ in range(3):
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                result = ydl.download([video_url])
+        except Exception as exc:  # noqa: BLE001
+            logging.exception("yt-dlp download failed")
+            return None
 
-    if result not in (0, None):
-        logging.error("yt-dlp download failed with code %s", result)
-        return None
+        if result in (0, None):
+            break
 
     try:
         video_file = _pick_downloaded_file(target_dir)
