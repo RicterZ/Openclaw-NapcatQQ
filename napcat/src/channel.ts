@@ -63,6 +63,13 @@ function normalizeNapcatTarget(raw: string): NapcatTarget | null {
   return { channel, id };
 }
 
+function ensureAgentSessionKey(rawKey: string | undefined, agentId: string): string {
+  const key = (rawKey ?? "").trim();
+  if (key.startsWith("agent:")) return key;
+  const safeAgent = (agentId || "main").trim() || "main";
+  return `agent:${safeAgent}:${key || "default"}`;
+}
+
 async function getClient(account: ResolvedNapcatAccount): Promise<{
   client: NapcatRpcClient;
   release?: () => Promise<void>;
@@ -162,13 +169,16 @@ async function handleInboundNapcatMessage(params: {
       ? `napcat:group:${target.id}`
       : `napcat:${senderId || target.id}`;
 
+  const sessionKey = ensureAgentSessionKey(route.sessionKey, route.agentId);
+  const mainSessionKey = ensureAgentSessionKey(route.mainSessionKey ?? route.sessionKey, route.agentId);
+
   const ctxPayload = runtime.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: text,
     CommandBody: text,
     From: target.channel === "group" ? `napcat:group:${target.id}` : `napcat:${senderId || target.id}`,
     To: to,
-    SessionKey: route.sessionKey,
+    SessionKey: sessionKey,
     AccountId: route.accountId,
     ChatType: target.channel === "group" ? "group" : "direct",
     ConversationLabel: fromLabel,
