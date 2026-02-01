@@ -245,8 +245,7 @@ def _download_video_url(video_url: str) -> Optional[Path]:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 result = ydl.download([video_url])
         except Exception as exc:  # noqa: BLE001
-            logging.exception("yt-dlp download failed")
-            return None
+            continue
 
         if result in (0, None):
             break
