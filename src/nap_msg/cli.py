@@ -242,7 +242,7 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     opts = dict(base_opts)
     if is_live:
         opts["force_keyframes_at_cuts"] = True
-        opts["live_from_start"] = False
+        opts["no_live_from_start"] = True
         opts.setdefault("external_downloader_args", {})["ffmpeg"] = ["-t", "30"]
 
     logging.debug("Downloading video via yt-dlp live=%s url=%s", is_live, video_url)
