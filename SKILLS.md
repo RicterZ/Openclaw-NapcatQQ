@@ -5,9 +5,10 @@ Env vars load automatically (including from a local `.env`).
 ## CLI
 - Private: `nap-msg send <user_id> [segments...]`
 - Group: `nap-msg send-group <group_id> [segments...]`
-- Group forward: `nap-msg send-group <group_id> --forward [segments...]`
+- Multi Messages in one card: `nap-msg send-group <group_id> --forward [segments...]`
 - Segments (order preserved): `-t/--text`, `-i/--image`, `-v/--video`, `-f/--file`, `-r/--reply`, `--video-url`
 - Video download: `--video-url <url>` downloads video from link as a video message.
+- Note: Normal send supports text + image only; for other mixes use forward.
 
 ## JSON-RPC (stdio)
 - Start server: `nap-msg rpc`
