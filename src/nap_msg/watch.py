@@ -97,11 +97,23 @@ def _try_parse_json(raw: str) -> Optional[dict]:
         return None
 
 def _event_to_receive_params(event: dict) -> dict:
+    """
+    Normalize Napcat event shape for the plugin.
+
+    Some Napcat deployments omit/alter `message_type`, so also fall back to
+    presence of group_id to detect group chats. This prevents private chats
+    from being mis-labeled as group sessions when `message_type` is missing.
+    """
     message_type = str(event.get("message_type") or "").lower()
-    is_group = message_type == "group"
-    chat_id = event.get("group_id") if is_group else event.get("user_id")
+    group_id = event.get("group_id")
+    user_id = event.get("user_id")
+
+    has_group_id = group_id is not None and str(group_id).strip() not in {"", "0"}
+    is_group = message_type == "group" or has_group_id
+    chat_id = group_id if is_group else user_id
+
     return {
-        "sender": event.get("user_id"),
+        "sender": user_id,
         "chatId": chat_id,
         "isGroup": is_group,
         "text": event.get("text"),
