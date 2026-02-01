@@ -240,12 +240,9 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     is_live = _probe_is_live_api(video_url, base_opts)
     opts = dict(base_opts)
     if is_live:
-        opts["download_ranges"] = lambda a, b: [{
-            "start_time": 0,
-            "end_time": 30,
-        }]
         opts["force_keyframes_at_cuts"] = True
         opts["live_from_start"] = False
+        opts.setdefault("external_downloader_args", {})["ffmpeg"] = ["-t", "30"]
 
     logging.debug("Downloading video via yt-dlp live=%s url=%s", is_live, video_url)
     try:
