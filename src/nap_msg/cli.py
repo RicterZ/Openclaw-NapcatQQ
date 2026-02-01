@@ -218,6 +218,7 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     base_name = f"{secrets.token_hex(4)}.%(ext)s"
     output_tmpl = target_dir / base_name
     base_opts = {
+        "live_from_start": False,
         "outtmpl": str(output_tmpl),
         "outtmpl_na_placeholder": "video",
         "restrictfilenames": True,
