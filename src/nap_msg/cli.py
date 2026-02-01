@@ -238,7 +238,17 @@ def _download_video_url(video_url: str) -> Optional[Path]:
     }
 
     opts = dict(base_opts)
-    opts.setdefault("external_downloader_args", {})["ffmpeg"] = ["-t", "30"]
+    opts.setdefault("external_downloader_args", {})["ffmpeg"] = [
+        "-fflags", "nobuffer",
+        "-flags", "low_delay",
+        "-strict", "experimental",
+
+        "-analyzeduration", "0",
+        "-probesize", "32",
+        "-rw_timeout", "5000000",
+
+        "-t", "30",
+    ]
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
