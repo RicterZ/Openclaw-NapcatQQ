@@ -6,8 +6,11 @@ import json
 import logging
 import os
 import sys
+import tempfile
 from pathlib import Path
-from typing import List
+from typing import Iterable, List, Optional
+
+import yt_dlp
 
 from .client import DEFAULT_TIMEOUT, NapcatRelayClient, send_group_forward_message, send_group_message, send_private_message
 from .messages import FileMessage, ForwardNode, ImageMessage, ReplyMessage, TextMessage, VideoMessage
@@ -58,11 +61,7 @@ def _configure_logging(verbose: bool) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
 
-    handlers = [file_handler]
-    if verbose:
-        handlers.append(logging.StreamHandler())
-
-    logging.basicConfig(level=level, format=fmt, handlers=handlers, force=True)
+    logging.basicConfig(level=level, format=fmt, handlers=[file_handler], force=True)
 
 
 def _add_segment_args(parser: argparse.ArgumentParser) -> None:
@@ -70,6 +69,12 @@ def _add_segment_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-i", "--image", dest="segments", action=_segment_action("image"), help="Image file path or URL")
     parser.add_argument("-f", "--file", dest="segments", action=_segment_action("file"), help="File path to upload")
     parser.add_argument("-v", "--video", dest="segments", action=_segment_action("video"), help="Video file path or URL")
+    parser.add_argument(
+        "--video-url",
+        dest="segments",
+        action=_segment_action("video-url"),
+        help="Video/stream URL to download via yt-dlp then send",
+    )
     parser.add_argument("-r", "--reply", dest="segments", action=_segment_action("reply"), help="Reply to a message id")
 
 
@@ -135,19 +140,38 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _build_message_segments(args: argparse.Namespace) -> List[object]:
     segments = getattr(args, "segments", []) or []
+    parts, errors, _ = _build_parts_and_errors(segments)
+    if errors:
+        return []
+    return parts
+
+
+def _build_parts_and_errors(segments: List[tuple]) -> tuple[List[object], List[dict], List[tuple]]:
     parts: List[object] = []
+    errors: List[dict] = []
     builders = {
         "reply": ReplyMessage,
         "text": TextMessage,
         "image": ImageMessage,
         "video": VideoMessage,
         "file": FileMessage,
+        "video-url": _video_url_segment,
     }
     for seg_type, value in segments:
         builder = builders.get(seg_type)
-        if builder:
-            parts.append(builder(value))
-    return parts
+        if not builder:
+            continue
+        try:
+            part = builder(value)
+        except Exception as exc:  # noqa: BLE001
+            logging.exception("Failed to build segment %s", seg_type)
+            errors.append({"segment": seg_type, "value": value, "error": str(exc)})
+            continue
+        if part is None:
+            errors.append({"segment": seg_type, "value": value, "error": "no content built"})
+            continue
+        parts.append(part)
+    return parts, errors, segments
 
 
 def _build_forward_nodes(parts: List[object]) -> List[ForwardNode]:
@@ -156,34 +180,130 @@ def _build_forward_nodes(parts: List[object]) -> List[ForwardNode]:
     return [ForwardNode(user_id, nickname, [part]) for part in parts]
 
 
+def _build_error_forward_content(parts: List[object], errors: List[dict], raw_segments: List[tuple]) -> List[object]:
+    content = list(parts)
+    content.append(TextMessage(_compose_error_text(errors, raw_segments)))
+    return content or [TextMessage(_compose_error_text(errors, raw_segments))]
+
+
+def _compose_error_text(errors: List[dict], raw_segments: List[tuple]) -> str:
+    original = "; ".join(f"{seg}:{val}" for seg, val in raw_segments) if raw_segments else "none"
+    err_lines = "; ".join(
+        f"{err.get('segment')}: {err.get('value')} => {err.get('error')}" for err in errors
+    ) or "unknown error"
+    return f"Message delivery failed. Original: [{original}]. Errors: {err_lines}."
+
+
 def _serialize_parts(parts: List[object]) -> List[dict]:
     return [part.as_dict() if hasattr(part, "as_dict") else part for part in parts]
 
 
 def _print_response(response: dict) -> None:
-    sys.stdout.write(json.dumps(response, ensure_ascii=False, indent=2))
+    sys.stdout.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")))
     sys.stdout.write("\n")
     sys.stdout.flush()
 
 
-def _message_parts_or_error(args: argparse.Namespace) -> List[object] | None:
-    parts = _build_message_segments(args)
-    if parts:
-        return parts
-    sys.stderr.write("No message content supplied; add --text/--image/--file/--video/--reply\n")
-    return None
+def _video_url_segment(video_url: str) -> Optional[VideoMessage]:
+    path = _download_video_url(video_url)
+    if not path:
+        return None
+    return VideoMessage(str(path))
+
+
+def _download_video_url(video_url: str) -> Optional[Path]:
+    """Download a video/stream URL via yt-dlp and return the saved file path."""
+    target_dir = Path(tempfile.mkdtemp(prefix="nap-msg-video-"))
+    output_tmpl = target_dir / "%(title).200B-%(id)s.%(ext)s"
+
+    base_opts = {
+        "outtmpl": str(output_tmpl),
+        "restrictfilenames": True,
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "nopart": True,
+    }
+
+    is_live = _probe_is_live_api(video_url, base_opts)
+    opts = dict(base_opts)
+    if is_live:
+        opts["download_ranges"] = {"ranges": [{"start_time": 0, "end_time": 30}], "force_keyframes": True}
+        opts["force_keyframes_at_cuts"] = True
+        opts["live_from_start"] = True
+
+    logging.debug("Downloading video via yt-dlp live=%s url=%s", is_live, video_url)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            result = ydl.download([video_url])
+    except Exception as exc:  # noqa: BLE001
+        logging.exception("yt-dlp download failed")
+        return None
+
+    if result not in (0, None):
+        logging.error("yt-dlp download failed with code %s", result)
+        return None
+
+    try:
+        video_file = _pick_downloaded_file(target_dir)
+    except Exception as exc:  # noqa: BLE001
+        logging.exception("Failed to locate downloaded video")
+        return None
+    logging.debug("Downloaded video to %s", video_file)
+    return video_file
+
+
+def _probe_is_live_api(video_url: str, base_opts: dict) -> bool:
+    try:
+        with yt_dlp.YoutubeDL(dict(base_opts)) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+    except Exception as exc:  # noqa: BLE001
+        logging.debug("Probe via yt-dlp failed, assuming non-live: %s", exc)
+        return False
+
+    live_status = info.get("live_status")
+    return bool(info.get("is_live")) or live_status in {"is_live", "is_upcoming"}
+
+
+def _pick_downloaded_file(target_dir: Path) -> Path:
+    candidates = list(_iter_video_files(target_dir))
+    if not candidates:
+        raise RuntimeError(f"No video file downloaded into {target_dir}")
+    return max(candidates, key=lambda p: p.stat().st_size)
+
+
+def _iter_video_files(target_dir: Path) -> Iterable[Path]:
+    video_suffixes = {
+        ".mp4",
+        ".mkv",
+        ".webm",
+        ".mov",
+        ".flv",
+        ".avi",
+        ".ts",
+        ".m4v",
+    }
+    for path in target_dir.iterdir():
+        if not path.is_file():
+            continue
+        if path.suffix.lower() in video_suffixes:
+            yield path
 
 
 def _run_send_group(args: argparse.Namespace) -> int:
-    parts = _message_parts_or_error(args)
-    if not parts:
+    parts, errors, raw_segments = _build_parts_and_errors(getattr(args, "segments", []))
+    if not parts and not errors:
         return 2
 
     is_forward = args.forward or args.type == "forward"
     client = NapcatRelayClient(url=args.napcat_url, timeout=args.timeout)
 
     try:
-        if is_forward:
+        if errors:
+            content = _build_error_forward_content(parts, errors, raw_segments)
+            nodes = _build_forward_nodes(content)
+            response = asyncio.run(send_group_forward_message(client, args.group_id, nodes))
+        elif is_forward:
             nodes = _build_forward_nodes(parts)
             response = asyncio.run(send_group_forward_message(client, args.group_id, nodes))
         else:
@@ -197,11 +317,18 @@ def _run_send_group(args: argparse.Namespace) -> int:
 
 
 def _run_send_private(args: argparse.Namespace) -> int:
-    parts = _message_parts_or_error(args)
-    if not parts:
+    parts, errors, raw_segments = _build_parts_and_errors(getattr(args, "segments", []))
+    if not parts and not errors:
         return 2
 
     client = NapcatRelayClient(url=args.napcat_url, timeout=args.timeout)
+
+    if errors:
+        error_text = _compose_error_text(errors, raw_segments)
+        if parts:
+            parts = parts + [TextMessage(error_text)]
+        else:
+            parts = [TextMessage(error_text)]
 
     try:
         response = asyncio.run(send_private_message(client, args.user_id, _serialize_parts(parts)))
