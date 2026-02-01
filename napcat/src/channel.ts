@@ -162,16 +162,13 @@ async function handleInboundNapcatMessage(params: {
       ? `napcat:group:${target.id}`
       : `napcat:${senderId || target.id}`;
 
-  const sessionKey = route.sessionKey;
-  const mainSessionKey = route.mainSessionKey;
-
   const ctxPayload = runtime.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: text,
     CommandBody: text,
     From: target.channel === "group" ? `napcat:group:${target.id}` : `napcat:${senderId || target.id}`,
     To: to,
-    SessionKey: sessionKey,
+    SessionKey: route.sessionKey,
     AccountId: route.accountId,
     ChatType: target.channel === "group" ? "group" : "direct",
     ConversationLabel: fromLabel,
@@ -187,8 +184,6 @@ async function handleInboundNapcatMessage(params: {
     OriginatingChannel: "napcat" as const,
     OriginatingTo: to,
     MediaUrl: attachments[0],
-    MediaUrls: attachments.length > 0 ? attachments : undefined,
-    MediaPaths: attachments.length > 0 ? attachments : undefined,
     MediaTypes: mediaKind ? [mediaKind] : undefined,
     MediaType: mediaKind,
   });
@@ -226,7 +221,7 @@ async function handleInboundNapcatMessage(params: {
   const disableBlockStreaming =
     typeof account.blockStreaming === "boolean" ? account.blockStreaming : false;
 
-  const { queuedFinal } = await runtime.channel.reply.dispatchReplyFromConfig({
+  await runtime.channel.reply.dispatchReplyFromConfig({
     ctx: ctxPayload,
     cfg,
     dispatcher,
