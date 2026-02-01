@@ -7,7 +7,7 @@ Env vars load automatically (including from a local `.env`).
 - Group: `nap-msg send-group <group_id> [segments...]`
 - Group forward: `nap-msg send-group <group_id> --forward [segments...]`
 - Segments (order preserved): `-t/--text`, `-i/--image`, `-v/--video`, `-f/--file`, `-r/--reply`, `--video-url`
-- Video download: `--video-url <http/rtsp...>` fetches the stream, sends full videos or a short clip for live sources, and includes an error forward when downloading fails.
+- Video download: `--video-url <url>` downloads the link; live streams send a short clip; failures send an error message to the group.
 
 ## JSON-RPC (stdio)
 - Start server: `nap-msg rpc`
