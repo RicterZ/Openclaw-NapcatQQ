@@ -223,6 +223,8 @@ def _download_video_url(video_url: str) -> Optional[Path]:
         "outtmpl_na_placeholder": "video",
         "restrictfilenames": True,
         "nopart": True,
+        "no_live_from_start": True,
+        "force_keyframes_at_cuts": True,
         "downloader_args": {
             "hls": [
                 "-allowed_extensions",
@@ -235,14 +237,9 @@ def _download_video_url(video_url: str) -> Optional[Path]:
         },
     }
 
-    is_live = _probe_is_live_api(video_url, base_opts)
     opts = dict(base_opts)
     opts.setdefault("external_downloader_args", {})["ffmpeg"] = ["-t", "30"]
-    if is_live:
-        opts["force_keyframes_at_cuts"] = True
-        opts["no_live_from_start"] = True
 
-    logging.debug("Downloading video via yt-dlp live=%s url=%s", is_live, video_url)
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             result = ydl.download([video_url])
@@ -262,18 +259,6 @@ def _download_video_url(video_url: str) -> Optional[Path]:
 
     logging.debug("Downloaded video to %s", video_file)
     return video_file
-
-
-def _probe_is_live_api(video_url: str, base_opts: dict) -> bool:
-    try:
-        with yt_dlp.YoutubeDL(dict(base_opts)) as ydl:
-            info = ydl.extract_info(video_url, download=False)
-    except Exception as exc:  # noqa: BLE001
-        logging.debug("Probe via yt-dlp failed, assuming non-live: %s", exc)
-        return False
-
-    live_status = info.get("live_status")
-    return bool(info.get("is_live")) or live_status in {"is_live", "is_upcoming"}
 
 
 def _pick_downloaded_file(target_dir: Path) -> Path:
