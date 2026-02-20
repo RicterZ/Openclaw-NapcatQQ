@@ -51,6 +51,10 @@ function normalizeNapcatTarget(raw: string): NapcatTarget | null {
   } else if (text.toLowerCase().startsWith("group-")) {
     channel = "group";
     text = text.slice("group-".length);
+  } else if (text.toLowerCase().startsWith("channel:")) {
+    // OpenClaw 核心输出的群聊格式
+    channel = "group";
+    text = text.slice("channel:".length);
   } else if (text.toLowerCase().startsWith("user:")) {
     channel = "private";
     text = text.slice("user:".length);
