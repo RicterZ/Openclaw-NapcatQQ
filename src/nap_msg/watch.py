@@ -5,10 +5,11 @@ import base64
 import json
 import logging
 import uuid
+import mimetypes
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 import httpx
 import websockets
@@ -95,6 +96,56 @@ def _try_parse_json(raw: str) -> Optional[dict]:
     except Exception:
         logging.debug("Failed to decode websocket frame as JSON")
         return None
+
+
+def _parse_content_disposition_filename(header_value: str | None) -> Optional[str]:
+    """Extract filename from Content-Disposition header if present."""
+    if not header_value:
+        return None
+    parts = [part.strip() for part in header_value.split(";") if part.strip()]
+
+    # RFC 5987 format: filename*=utf-8''encoded-filename
+    for part in parts:
+        if part.lower().startswith("filename*="):
+            value = part.split("=", 1)[-1].strip().strip('"')
+            try:
+                encoded = value.split("''", 1)[-1] if "''" in value else value
+                decoded = unquote(encoded)
+                name = Path(decoded).name
+                if name:
+                    return name
+            except Exception:
+                continue
+
+    for part in parts:
+        if part.lower().startswith("filename="):
+            value = part.split("=", 1)[-1].strip().strip('"')
+            name = Path(value).name
+            if name:
+                return name
+    return None
+
+
+def _choose_download_suffix(url_path: str, resp: httpx.Response) -> str:
+    """Prefer disposition filename -> URL path -> mime extension."""
+    disposition_name = _parse_content_disposition_filename(resp.headers.get("content-disposition"))
+    if disposition_name:
+        suffix = Path(disposition_name).suffix
+        if suffix:
+            return suffix
+
+    url_suffix = Path(url_path).suffix
+    if url_suffix:
+        return url_suffix
+
+    content_type = resp.headers.get("content-type")
+    if content_type:
+        mime = content_type.split(";")[0].strip()
+        guessed = mimetypes.guess_extension(mime)
+        if guessed:
+            return guessed
+
+    return ".bin"
 
 def _event_to_receive_params(event: dict) -> dict:
     """
@@ -208,7 +259,7 @@ async def _resolve_text(
 
 
 async def _download_media(url: str, media_type: str) -> Optional[str]:
-    """Download media to working directory napcat folder and return file:// URI."""
+    """Download media to working directory napcat folder and return absolute path."""
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         return None
@@ -217,16 +268,15 @@ async def _download_media(url: str, media_type: str) -> Optional[str]:
     base_dir = Path.cwd() / "napcat" / media_type / month
     base_dir.mkdir(parents=True, exist_ok=True)
 
-    suffix = Path(parsed.path).suffix or ".bin"
-    filename = f"{uuid.uuid4().hex}{suffix}"
-    dest = base_dir / filename
-
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
+            suffix = _choose_download_suffix(parsed.path, resp)
+            filename = f"{uuid.uuid4().hex}{suffix}"
+            dest = base_dir / filename
             dest.write_bytes(resp.content)
-            return dest.resolve().as_uri()
+            return str(dest.resolve())
     except Exception as exc:  # noqa: BLE001
         logging.debug("Failed to download media %s: %s", url, exc)
         return None
