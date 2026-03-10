@@ -29,7 +29,7 @@ KEEP_FIELDS = {
     # "target_id",
 }
 
-DEFAULT_IGNORE_PREFIXES = ["/"]
+DEFAULT_IGNORE_PREFIXES = []
 PASSTHROUGH_COMMANDS = {"/new", "/reset"}
 
 
