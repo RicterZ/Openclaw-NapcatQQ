@@ -254,7 +254,7 @@ async def _resolve_text(
         text = await sentence_recognize(audio_bytes, voice_format="mp3")
         return text
     except Exception as exc:  # noqa: BLE001
-        logging.debug("ASR failed, skip message: %s", exc)
+        logging.info("ASR failed, error message: %s", exc)
         return None
 
 
