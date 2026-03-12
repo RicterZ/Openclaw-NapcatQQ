@@ -269,6 +269,8 @@ async function startNapcatMonitor(ctx: ChannelGatewayContext<ResolvedNapcatAccou
           client,
           ctx,
         }).catch((err) => ctx.log?.error(`napcat inbound failed: ${String(err)}`));
+      } else if (msg.method === "stderr") {
+        ctx.log?.info(`nap-msg: ${String(msg.params)}`);
       } else if (msg.method === "error") {
         ctx.log?.error(`napcat watch error ${JSON.stringify(msg.params)}`);
       }
