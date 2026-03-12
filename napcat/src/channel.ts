@@ -150,7 +150,19 @@ async function handleInboundNapcatMessage(params: {
     ? `Napcat Group ${chatId ?? "unknown"}`
     : `Napcat ${senderId || "unknown"}`;
   const attachmentLines = attachments.map((file) => `<media:${mediaKind ?? "attachment"}>${file}`);
-  const bodyContent = [text || mediaPlaceholder, ...attachmentLines].filter(Boolean).join("\n");
+
+  const now = new Date();
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const weekday = weekdays[now.getDay()];
+  const datePart = now.toLocaleDateString("en-CA"); // YYYY-MM-DD
+  const timePart = now.toTimeString().slice(0, 5);  // HH:MM
+  const tzOffset = now.getTimezoneOffset();
+  const tzSign = tzOffset <= 0 ? "+" : "-";
+  const tzHours = Math.abs(Math.floor(tzOffset / 60));
+  const tzLabel = `GMT${tzSign}${tzHours}`;
+  const timestampPrefix = `[${weekday} ${datePart} ${timePart} ${tzLabel}]`;
+
+  const bodyContent = [timestampPrefix, text || mediaPlaceholder, ...attachmentLines].filter(Boolean).join("\n");
   const body = runtime.channel.reply.formatInboundEnvelope({
     channel: "Napcat",
     from: fromLabel,
