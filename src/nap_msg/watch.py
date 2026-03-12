@@ -157,7 +157,7 @@ def _format_timestamp() -> str:
     sign = "+" if total_minutes >= 0 else "-"
     hours = abs(total_minutes) // 60
     tz_label = f"GMT{sign}{hours}"
-    return f"[{weekday} {date_part} {time_part} {tz_label}]"
+    return f"{weekday} {date_part} {time_part} {tz_label}"
 
 
 def _event_to_receive_params(event: dict) -> dict:
