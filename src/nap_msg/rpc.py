@@ -248,7 +248,9 @@ class RpcServer:
         self._write_json({"jsonrpc": "2.0", "id": req_id, "error": error_obj})
 
     def _write_json(self, obj: dict) -> None:
-        sys.stdout.write(json.dumps(obj, ensure_ascii=False))
+        line = json.dumps(obj, ensure_ascii=False)
+        logger.info("stdout>%s", line)
+        sys.stdout.write(line)
         sys.stdout.write("\n")
         sys.stdout.flush()
 
