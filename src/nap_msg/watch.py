@@ -126,6 +126,42 @@ def _parse_content_disposition_filename(header_value: str | None) -> Optional[st
     return None
 
 
+def _parse_json_card(seg_data: dict) -> Optional[str]:
+    """Parse a QQ JSON card segment and return a human-readable summary."""
+    raw = seg_data.get("data")
+    if not isinstance(raw, str):
+        return None
+    try:
+        card = json.loads(raw)
+    except Exception:
+        return None
+
+    parts: list[str] = []
+
+    # prompt field: e.g. "[分享]分享 变态学教授无铭 的微博"
+    prompt = card.get("prompt", "").strip()
+
+    # meta.news is the most common card type
+    news = card.get("meta", {}).get("news", {})
+    title = news.get("title", "").strip()
+    desc = news.get("desc", "").strip()
+    jump_url = news.get("jumpUrl", "").strip()
+    tag = news.get("tag", "").strip()
+
+    if title:
+        parts.append(f"标题: {title}")
+    if desc:
+        parts.append(f"描述: {desc}")
+    if tag:
+        parts.append(f"来源: {tag}")
+    if jump_url:
+        parts.append(f"链接: {jump_url}")
+    if not parts and prompt:
+        parts.append(prompt)
+
+    return "\n".join(parts) if parts else None
+
+
 def _choose_download_suffix(url_path: str, resp: httpx.Response) -> str:
     """Prefer disposition filename -> URL path -> mime extension."""
     disposition_name = _parse_content_disposition_filename(resp.headers.get("content-disposition"))
@@ -216,6 +252,10 @@ async def _extract_message_content(
             txt = seg_data.get("text")
             if isinstance(txt, str):
                 text_parts.append(txt)
+        elif seg_type == "json":
+            card_text = _parse_json_card(seg_data)
+            if card_text:
+                text_parts.append(card_text)
         elif seg_type == "record" and record_text is None:
             rec_path = seg_data.get("file")
             if isinstance(rec_path, str) and rec_path.strip():
