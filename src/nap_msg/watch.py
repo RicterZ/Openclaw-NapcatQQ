@@ -278,7 +278,7 @@ async def _download_media(url: str, media_type: str) -> Optional[str]:
             dest.write_bytes(resp.content)
             return str(dest.resolve())
     except Exception as exc:  # noqa: BLE001
-        logging.debug("Failed to download media %s: %s", url, exc)
+        logging.error("Failed to download media %s: %s", url, exc)
         return None
 
 
@@ -322,7 +322,7 @@ async def _fetch_voice(path: str, ws, napcat_ws: str) -> bytes:
     data = response.get("data") or {}
     status = response.get("status")
     if status != "ok":
-        logging.debug("Napcat get_record full response: %s", response)
+        logging.error("Napcat get_record full response: %s", response)
         return b""
     record_base64 = data.get("base64") if isinstance(data, dict) else None
 

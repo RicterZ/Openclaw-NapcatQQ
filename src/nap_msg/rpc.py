@@ -207,7 +207,7 @@ class RpcServer:
             else:
                 raise ValueError("Unsupported channel; use group, group_forward, or private")
         except Exception as exc:  # noqa: BLE001
-            logger.debug("send failed: %s", exc)
+            logger.info("send failed: %s", exc)
             self._write_error(req_id, code=-32000, message=str(exc))
             return
 
@@ -254,6 +254,7 @@ class RpcServer:
 
 
 def _asr_enabled() -> bool:
+    logger.info(os.getenv("TENCENT_SECRET_ID"))
     return bool(os.getenv("TENCENT_SECRET_ID", "").strip() and os.getenv("TENCENT_SECRET_KEY", "").strip())
 
 

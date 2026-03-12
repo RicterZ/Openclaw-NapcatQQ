@@ -51,8 +51,9 @@ def _load_dotenv_if_present() -> None:
             if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
                 value = value[1:-1]
             os.environ[key] = value
+            logging.info(f"Load env: {key} / {value}")
     except OSError as exc:
-        logging.debug("Skipping .env load: %s", exc)
+        logging.info("Skipping .env load: %s", exc)
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -256,7 +257,7 @@ def _download_video_url(video_url: str) -> Optional[Path]:
         logging.exception("Failed to locate downloaded video")
         return None
 
-    logging.debug("Downloaded video to %s", video_file)
+    logging.info("Downloaded video to %s", video_file)
     return video_file
 
 
