@@ -176,15 +176,12 @@ def _event_to_receive_params(event: dict) -> dict:
     is_group = message_type == "group" or has_group_id
     chat_id = group_id if is_group else user_id
 
-    text = event.get("text")
-    timestamp = _format_timestamp()
-    text_with_ts = f"{timestamp}\n{text}" if text else timestamp
-
     return {
         "sender": user_id,
         "chatId": chat_id,
         "isGroup": is_group,
-        "text": text_with_ts,
+        "text": event.get("text"),
+        "time": _format_timestamp(),
         "messageId": event.get("message_id"),
         "images": event.get("images"),
         "videos": event.get("videos"),
