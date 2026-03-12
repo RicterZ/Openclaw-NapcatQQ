@@ -23,7 +23,6 @@ type NapcatInboundMessage = {
   chatId?: string | number | null;
   isGroup?: boolean | null;
   text?: string | null;
-  time?: string | null;
   messageId?: string | number | null;
   images?: string[] | null;
   videos?: string[] | null;
@@ -124,7 +123,7 @@ async function handleInboundNapcatMessage(params: {
     ...(message.files ?? []),
   ].filter(Boolean);
 
-  if (!text && attachments.length === 0 && !message.time) return;
+  if (!text && attachments.length === 0) return;
 
   const mediaKind = inferMediaKind(attachments[0]);
   const mediaPlaceholder = mediaKind ? `<media:${mediaKind}>` : "<media:attachment>";
@@ -151,7 +150,7 @@ async function handleInboundNapcatMessage(params: {
     ? `Napcat Group ${chatId ?? "unknown"}`
     : `Napcat ${senderId || "unknown"}`;
   const attachmentLines = attachments.map((file) => `<media:${mediaKind ?? "attachment"}>${file}`);
-  const bodyContent = [message.time, text || mediaPlaceholder, ...attachmentLines].filter(Boolean).join("\n");
+  const bodyContent = [text || mediaPlaceholder, ...attachmentLines].filter(Boolean).join("\n");
   const body = runtime.channel.reply.formatInboundEnvelope({
     channel: "Napcat",
     from: fromLabel,

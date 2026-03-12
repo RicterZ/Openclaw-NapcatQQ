@@ -147,18 +147,6 @@ def _choose_download_suffix(url_path: str, resp: httpx.Response) -> str:
 
     return ".bin"
 
-def _format_timestamp() -> str:
-    now = datetime.now().astimezone()
-    weekday = now.strftime("%a")
-    date_part = now.strftime("%Y-%m-%d")
-    time_part = now.strftime("%H:%M")
-    tz_offset = now.utcoffset()
-    total_minutes = int(tz_offset.total_seconds() // 60)
-    sign = "+" if total_minutes >= 0 else "-"
-    hours = abs(total_minutes) // 60
-    tz_label = f"GMT{sign}{hours}"
-    return f"{weekday} {date_part} {time_part} {tz_label}"
-
 
 def _event_to_receive_params(event: dict) -> dict:
     """
@@ -176,12 +164,16 @@ def _event_to_receive_params(event: dict) -> dict:
     is_group = message_type == "group" or has_group_id
     chat_id = group_id if is_group else user_id
 
+    text = event.get("text")
+    now = datetime.now().astimezone()
+    timestamp = now.strftime("%a %Y-%m-%d %H:%M ") + f"GMT{int(-now.utcoffset().total_seconds()//3600):+d}"
+    text_with_ts = f"[{timestamp}]\n{text}" if text else f"[{timestamp}]"
+
     return {
         "sender": user_id,
         "chatId": chat_id,
         "isGroup": is_group,
-        "text": event.get("text"),
-        "time": _format_timestamp(),
+        "text": text_with_ts,
         "messageId": event.get("message_id"),
         "images": event.get("images"),
         "videos": event.get("videos"),
