@@ -85,11 +85,13 @@ def _download(url: str, work_dir: Path, token: str) -> Optional[Path]:
         # HLS/m3u8: pass extra flags to ffmpeg's HLS downloader to lift the
         # default protocol/extension safety restrictions that prevent fetching
         # segments from http/https and non-standard file extensions.
+        # "data" is required for AES-128 encrypted streams where the key is
+        # passed as a data: URI inline.
         "downloader_args": {
             "ffmpeg": [
                 "-allowed_extensions", "ALL",
                 "-extension_picky", "0",
-                "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+                "-protocol_whitelist", "file,http,https,tcp,tls,crypto,data",
             ],
         },
         "quiet": True,
