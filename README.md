@@ -132,7 +132,7 @@ Voice messages are transcribed automatically when `asr` is configured. Powered b
       "url": "ws://napcat:3001",
       "asr": {
         "secretId": "<your-tencent-secret-id>",
-        "secretKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "secretKey": "<your-tencent-secret-key>",
         "region": "ap-shanghai",
         "engine": "16k_zh"
       }
@@ -163,8 +163,8 @@ Voice messages are transcribed automatically when `asr` is configured. Powered b
     "napcat": {
       "url": "ws://napcat:3001",
       "asr": {
-        "secretId": "<your-tencent-secret-id>",
-        "secretKey": "xxx"
+        "secretId": "<tencent-secret-id>",
+        "secretKey": "<tencent-secret-key>"
       },
       "accounts": {
         "work": {
@@ -174,8 +174,8 @@ Voice messages are transcribed automatically when `asr` is configured. Powered b
         "personal": {
           "fromUser": "987654321",
           "asr": {
-            "secretId": "<your-tencent-secret-id>",
-            "secretKey": "yyy",
+            "secretId": "<tencent-secret-id>",
+            "secretKey": "<tencent-secret-key>",
             "engine": "16k_yue"
           }
         }
