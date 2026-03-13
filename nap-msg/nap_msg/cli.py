@@ -129,7 +129,7 @@ def _build_parts_and_errors(segments: List[tuple]) -> tuple[List[object], List[d
         "reply": ReplyMessage,
         "text": TextMessage,
         "image": ImageMessage,
-        "video": VideoMessage,
+        "video": _video_segment,
         "file": FileMessage,
         "video-url": _video_url_segment,
     }
@@ -172,6 +172,13 @@ def _compose_error_text(errors: List[dict], raw_segments: List[tuple]) -> str:
 
 def _serialize_parts(parts: List[object]) -> List[dict]:
     return [part.as_dict() if hasattr(part, "as_dict") else part for part in parts]
+
+
+def _video_segment(value: str) -> Optional[VideoMessage]:
+    """Local file path → VideoMessage directly; any URL → download and transcode first."""
+    if value.startswith(("http://", "https://", "rtsp://", "rtmp://")):
+        return _video_url_segment(value)
+    return VideoMessage(value)
 
 
 def _video_url_segment(video_url: str) -> Optional[VideoMessage]:
