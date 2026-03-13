@@ -44,15 +44,17 @@ _COMPAT_AUDIO_CODECS = {"aac"}
 # Public API
 # ---------------------------------------------------------------------------
 
-def download_and_transcode(url: str) -> Optional[Path]:
+def download_and_transcode(url: str, duration: int = LIVE_CLIP_SECONDS) -> Optional[Path]:
     """
     Download *url* and return a QQ-compatible MP4 path, or None on failure.
     The caller is responsible for deleting the temp directory when done.
+    *duration* caps how many seconds are captured (applies to live streams
+    and long videos alike); defaults to LIVE_CLIP_SECONDS.
     """
     work_dir = Path(tempfile.mkdtemp(prefix="nap-msg-video-"))
     token = secrets.token_hex(4)
 
-    raw_path = _download(url, work_dir, token)
+    raw_path = _download(url, work_dir, token, duration)
     if raw_path is None:
         return None
 
@@ -64,7 +66,7 @@ def download_and_transcode(url: str) -> Optional[Path]:
 # Download
 # ---------------------------------------------------------------------------
 
-def _download(url: str, work_dir: Path, token: str) -> Optional[Path]:
+def _download(url: str, work_dir: Path, token: str, duration: int) -> Optional[Path]:
     """Run yt-dlp and return the downloaded file path."""
     outtmpl = str(work_dir / f"{token}.%(ext)s")
 
@@ -80,7 +82,7 @@ def _download(url: str, work_dir: Path, token: str) -> Optional[Path]:
         # Live streams: grab only LIVE_CLIP_SECONDS worth of content
         "live_from_start": False,
         "postprocessor_args": {
-            "ffmpeg": ["-t", str(LIVE_CLIP_SECONDS)],
+            "ffmpeg": ["-t", str(duration)],
         },
         # HLS/m3u8: pass extra flags to ffmpeg's HLS downloader to lift the
         # default protocol/extension safety restrictions that prevent fetching

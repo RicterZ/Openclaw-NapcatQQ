@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -73,6 +74,13 @@ def _add_segment_args(parser: argparse.ArgumentParser) -> None:
         action=_segment_action("video-url"),
         help="Video/stream URL (downloaded via yt-dlp and transcoded to QQ-compatible MP4)",
     )
+    parser.add_argument(
+        "--video-duration",
+        type=int,
+        default=None,
+        dest="video_duration",
+        help="Max seconds to capture from a stream/video (default: 30)",
+    )
     parser.add_argument("-r", "--reply", dest="segments", action=_segment_action("reply"), help="Reply to a message id")
 
 
@@ -122,16 +130,18 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _build_parts_and_errors(segments: List[tuple]) -> tuple[List[object], List[dict], List[tuple]]:
+def _build_parts_and_errors(segments: List[tuple], video_duration: Optional[int] = None) -> tuple[List[object], List[dict], List[tuple]]:
     parts: List[object] = []
     errors: List[dict] = []
+    video_seg = functools.partial(_video_segment, duration=video_duration)
+    video_url_seg = functools.partial(_video_url_segment, duration=video_duration)
     builders = {
         "reply": ReplyMessage,
         "text": TextMessage,
         "image": ImageMessage,
-        "video": _video_segment,
+        "video": video_seg,
         "file": FileMessage,
-        "video-url": _video_url_segment,
+        "video-url": video_url_seg,
     }
     for seg_type, value in segments:
         builder = builders.get(seg_type)
@@ -174,17 +184,19 @@ def _serialize_parts(parts: List[object]) -> List[dict]:
     return [part.as_dict() if hasattr(part, "as_dict") else part for part in parts]
 
 
-def _video_segment(value: str) -> Optional[VideoMessage]:
+def _video_segment(value: str, duration: Optional[int] = None) -> Optional[VideoMessage]:
     """Local file path → VideoMessage directly; any URL → download and transcode first."""
     if value.startswith(("http://", "https://", "rtsp://", "rtmp://")):
-        return _video_url_segment(value)
+        return _video_url_segment(value, duration=duration)
     return VideoMessage(value)
 
 
-def _video_url_segment(video_url: str) -> Optional[VideoMessage]:
+def _video_url_segment(video_url: str, duration: Optional[int] = None) -> Optional[VideoMessage]:
     """Download *video_url*, transcode to QQ-compatible MP4, return a VideoMessage."""
-    print(f"Downloading and processing video (up to {30}s for live streams), please wait...")
-    path = download_and_transcode(video_url)
+    from .video import LIVE_CLIP_SECONDS
+    secs = duration or LIVE_CLIP_SECONDS
+    print(f"Downloading and processing video (up to {secs}s), please wait...")
+    path = download_and_transcode(video_url, duration=secs)
     if not path:
         return None
     return VideoMessage(str(path))
@@ -197,7 +209,9 @@ def _print_response(response: dict) -> None:
 
 
 def _run_send_group(args: argparse.Namespace) -> int:
-    parts, errors, raw_segments = _build_parts_and_errors(getattr(args, "segments", []))
+    parts, errors, raw_segments = _build_parts_and_errors(
+        getattr(args, "segments", []), getattr(args, "video_duration", None)
+    )
     if not parts and not errors:
         return 2
 
@@ -223,7 +237,9 @@ def _run_send_group(args: argparse.Namespace) -> int:
 
 
 def _run_send_private(args: argparse.Namespace) -> int:
-    parts, errors, raw_segments = _build_parts_and_errors(getattr(args, "segments", []))
+    parts, errors, raw_segments = _build_parts_and_errors(
+        getattr(args, "segments", []), getattr(args, "video_duration", None)
+    )
     if not parts and not errors:
         return 2
 
