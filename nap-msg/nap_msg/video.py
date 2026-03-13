@@ -79,11 +79,12 @@ def _download(url: str, work_dir: Path, token: str, duration: int) -> Optional[P
         "merge_output_format": "mp4",
         "restrictfilenames": True,
         "nopart": True,
-        # Live streams: grab only LIVE_CLIP_SECONDS worth of content
         "live_from_start": False,
-        "postprocessor_args": {
-            "ffmpeg": ["-t", str(duration)],
-        },
+        # Stop downloading after `duration` seconds — this cuts the stream
+        # at the download stage so yt-dlp exits promptly instead of waiting
+        # for the full stream to finish.
+        "download_ranges": yt_dlp.utils.download_range_func(None, [(0, duration)]),
+        "force_keyframes_at_cuts": True,
         # HLS/m3u8: pass extra flags to ffmpeg's HLS downloader to lift the
         # default protocol/extension safety restrictions that prevent fetching
         # segments from http/https and non-standard file extensions.
