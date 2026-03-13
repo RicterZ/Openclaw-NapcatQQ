@@ -7,7 +7,7 @@ import { setNapcatRuntime } from "./src/runtime.js";
 const plugin = {
   id: "napcat",
   name: "Napcat",
-  description: "Napcat channel plugin via nap-msg RPC bridge",
+  description: "Napcat channel plugin via direct WebSocket (OneBot v11)",
   configSchema: napcatChannelConfigSchema,
   register(api: OpenClawPluginApi) {
     setNapcatRuntime(api.runtime);

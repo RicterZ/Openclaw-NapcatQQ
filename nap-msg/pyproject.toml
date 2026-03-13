@@ -1,7 +1,7 @@
 [project]
 name = "nap-msg"
 version = "0.1.0"
-description = "CLI relay between moltbot and a Napcat WebSocket backend"
+description = "CLI tool for sending messages via Napcat WebSocket"
 authors = [
     {name = "Ricter Z",email = "ricterzheng@gmail.com"}
 ]
@@ -9,9 +9,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "websockets>=12",
-    "moltbot @ https://github.com/RicterZ/moltbot-python/archive/refs/tags/v0.0.1.zip",
-    "httpx (>=0.28.1,<0.29.0)",
-    "yt-dlp>=2024.4.9"
+    "yt-dlp>=2024.4.9",
 ]
 
 
@@ -23,4 +21,4 @@ build-backend = "poetry.core.masonry.api"
 nap-msg = "nap_msg.cli:main"
 
 [tool.poetry]
-packages = [{include = "nap_msg", from = "src"}]
+packages = [{include = "nap_msg"}]

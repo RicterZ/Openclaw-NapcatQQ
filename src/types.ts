@@ -1,18 +1,24 @@
 import type { BlockStreamingCoalesceConfig, OpenClawConfig } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 
+export type NapcatAsrConfig = {
+  secretId: string;
+  secretKey: string;
+  region?: string;
+  engine?: string;
+};
+
 export type NapcatAccountConfig = {
   name?: string;
   enabled?: boolean;
   url?: string;
-  cliPath?: string;
   timeoutMs?: number;
   ignorePrefixes?: string[];
-  fromGroup?: string | number;
-  fromUser?: string | number;
+  fromGroup?: string | number | (string | number)[];
+  fromUser?: string | number | (string | number)[];
   blockStreaming?: boolean;
   blockStreamingCoalesce?: BlockStreamingCoalesceConfig;
-  env?: Record<string, string>;
+  asr?: NapcatAsrConfig;
 };
 
 export type NapcatRootConfig = NapcatAccountConfig & {
@@ -25,20 +31,20 @@ export type ResolvedNapcatAccount = {
   enabled: boolean;
   configured: boolean;
   napcatUrl?: string;
-  cliPath?: string;
   timeoutMs?: number;
   ignorePrefixes: string[];
-  fromGroup?: string;
-  fromUser?: string;
+  fromGroup?: string[];
+  fromUser?: string[];
   blockStreaming?: boolean;
   blockStreamingCoalesce?: BlockStreamingCoalesceConfig;
-  env?: Record<string, string>;
+  asr?: NapcatAsrConfig;
 };
 
-function normalizeId(value?: string | number): string | undefined {
+function normalizeIds(value?: string | number | (string | number)[]): string[] | undefined {
   if (value === undefined || value === null) return undefined;
-  const text = String(value).trim();
-  return text || undefined;
+  const arr = Array.isArray(value) ? value : [value];
+  const cleaned = arr.map((v) => String(v).trim()).filter(Boolean);
+  return cleaned.length > 0 ? cleaned : undefined;
 }
 
 function normalizePrefixes(prefixes?: string[]): string[] {
@@ -47,19 +53,24 @@ function normalizePrefixes(prefixes?: string[]): string[] {
   return cleaned.length > 0 ? cleaned : ["/"];
 }
 
+function normalizeAsr(asr?: NapcatAsrConfig): NapcatAsrConfig | undefined {
+  if (!asr) return undefined;
+  const secretId = asr.secretId?.trim() ?? "";
+  const secretKey = asr.secretKey?.trim() ?? "";
+  if (!secretId || !secretKey) return undefined;
+  return {
+    secretId,
+    secretKey,
+    region: asr.region?.trim() || undefined,
+    engine: asr.engine?.trim() || undefined,
+  };
+}
+
 export function listNapcatAccountIds(cfg: OpenClawConfig): string[] {
   const napcatCfg = (cfg.channels?.napcat ?? {}) as NapcatRootConfig;
   const ids = new Set<string>([DEFAULT_ACCOUNT_ID]);
   Object.keys(napcatCfg.accounts ?? {}).forEach((id) => ids.add(id));
-    return Array.from(ids);
-}
-
-function normalizeEnv(env?: Record<string, string>): Record<string, string> | undefined {
-  if (!env || typeof env !== "object") return undefined;
-  const entries = Object.entries(env)
-    .map(([k, v]) => [String(k).trim(), String(v).trim()] as [string, string])
-    .filter(([k, v]) => k && v);
-  return entries.length ? Object.fromEntries(entries) : undefined;
+  return Array.from(ids);
 }
 
 export function resolveNapcatAccount(params: {
@@ -77,7 +88,7 @@ export function resolveNapcatAccount(params: {
     ...accountCfg,
   };
 
-  const napcatUrl = merged.url?.trim() || process.env.NAPCAT_URL?.trim() || undefined;
+  const napcatUrl = merged.url?.trim() || undefined;
 
   return {
     accountId: resolvedId,
@@ -85,13 +96,12 @@ export function resolveNapcatAccount(params: {
     enabled: merged.enabled ?? true,
     configured: Boolean(napcatUrl),
     napcatUrl,
-    cliPath: merged.cliPath?.trim() || undefined,
     timeoutMs: merged.timeoutMs,
     ignorePrefixes: normalizePrefixes(merged.ignorePrefixes),
-    fromGroup: normalizeId(merged.fromGroup),
-    fromUser: normalizeId(merged.fromUser),
+    fromGroup: normalizeIds(merged.fromGroup),
+    fromUser: normalizeIds(merged.fromUser),
     blockStreaming: merged.blockStreaming,
     blockStreamingCoalesce: merged.blockStreamingCoalesce,
-    env: normalizeEnv(merged.env),
+    asr: normalizeAsr(merged.asr),
   };
 }

@@ -1,18 +1,20 @@
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
-
-# Virtual env
 .venv/
+nap-msg/poetry.lock
+
+# TypeScript / Node
+node_modules/
+dist/
+*.js.map
 
 # IDE
 .idea/
 
-# Poetry
-poetry.lock
-
 # Env files
 .env
 
+# Misc
 vendor
 .ai

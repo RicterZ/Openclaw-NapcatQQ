@@ -2,7 +2,7 @@
   "name": "@openclaw/napcat",
   "version": "2026.2.01",
   "type": "module",
-  "description": "Openclaw Napcat channel plugin (stdin/stdout RPC bridge)",
+  "description": "Openclaw Napcat channel plugin via direct WebSocket (OneBot v11)",
   "openclaw": {
     "extensions": ["./index.ts"]
   },

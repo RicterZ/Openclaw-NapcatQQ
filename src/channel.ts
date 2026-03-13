@@ -10,8 +10,9 @@ import {
 
 import { napcatChannelConfigSchema } from "./config-schema.js";
 import { deliverNapcatReplies, type NapcatTarget } from "./deliver.js";
-import { NapcatRpcClient, type NapcatRpcNotification } from "./rpc-client.js";
 import { getNapcatRuntime } from "./runtime.js";
+import { NapcatWsClient } from "./ws-client.js";
+import { watchForever } from "./watcher.js";
 import {
   listNapcatAccountIds,
   resolveNapcatAccount,
@@ -29,7 +30,7 @@ type NapcatInboundMessage = {
   files?: string[] | null;
 };
 
-const activeClients = new Map<string, NapcatRpcClient>();
+const activeClients = new Map<string, NapcatWsClient>();
 
 function inferMediaKind(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -68,7 +69,7 @@ function normalizeNapcatTarget(raw: string): NapcatTarget | null {
 }
 
 async function getClient(account: ResolvedNapcatAccount): Promise<{
-  client: NapcatRpcClient;
+  client: NapcatWsClient;
   release?: () => Promise<void>;
 }> {
   const existing = activeClients.get(account.accountId);
@@ -76,17 +77,19 @@ async function getClient(account: ResolvedNapcatAccount): Promise<{
     return { client: existing };
   }
 
-  const client = new NapcatRpcClient({
-    cliPath: account.cliPath,
-    napcatUrl: account.napcatUrl,
+  const url = account.napcatUrl;
+  if (!url) {
+    throw new Error("Napcat URL not configured (set channels.napcat.url in config.json)");
+  }
+  const client = new NapcatWsClient({
+    url,
     timeoutMs: account.timeoutMs,
-    env: account.env,
   });
-  await client.start();
+  await client.connect();
   return {
     client,
     release: async () => {
-      await client.stop().catch(() => {});
+      await client.disconnect().catch(() => {});
     },
   };
 }
@@ -106,7 +109,7 @@ async function handleInboundNapcatMessage(params: {
   message: NapcatInboundMessage;
   account: ResolvedNapcatAccount;
   cfg: OpenClawConfig;
-  client: NapcatRpcClient;
+  client: NapcatWsClient;
   ctx: ChannelGatewayContext<ResolvedNapcatAccount>;
 }) {
   const { message, account, cfg, client, ctx } = params;
@@ -244,28 +247,11 @@ async function startNapcatMonitor(ctx: ChannelGatewayContext<ResolvedNapcatAccou
   const runtime = getNapcatRuntime();
   const cfg = runtime.config.loadConfig();
   const account = ctx.account;
-  const client = new NapcatRpcClient({
-    cliPath: account.cliPath,
-    napcatUrl: account.napcatUrl,
-    timeoutMs: account.timeoutMs,
-    onNotification: (msg: NapcatRpcNotification) => {
-      if (msg.method === "message") {
-        void handleInboundNapcatMessage({
-          message: (msg.params as { message?: NapcatInboundMessage })?.message ?? {},
-          account,
-          cfg,
-          client,
-          ctx,
-        }).catch((err) => ctx.log?.error(`napcat inbound failed: ${String(err)}`));
-      } else if (msg.method === "stderr") {
-        ctx.log?.info(`nap-msg: ${String(msg.params)}`);
-      } else if (msg.method === "error") {
-        ctx.log?.error(`napcat watch error ${JSON.stringify(msg.params)}`);
-      }
-    },
-  });
 
-  activeClients.set(account.accountId, client);
+  if (!account.napcatUrl) {
+    throw new Error("Napcat URL not configured (set channels.napcat.url in config.json)");
+  }
+
   ctx.setStatus({
     ...ctx.getStatus(),
     accountId: account.accountId,
@@ -275,22 +261,39 @@ async function startNapcatMonitor(ctx: ChannelGatewayContext<ResolvedNapcatAccou
   });
 
   const abort = ctx.abortSignal;
-  const onAbort = () => {
-    void client.stop().catch(() => {});
-  };
-  abort?.addEventListener("abort", onAbort, { once: true });
 
-  let subscriptionId: number | null = null;
   try {
-    await client.start();
-    const subResult = await client.request<{ subscription?: number }>("watch.subscribe", {
-      napcat_url: account.napcatUrl,
-      ignore_prefixes: account.ignorePrefixes,
-      from_group: account.fromGroup,
-      from_user: account.fromUser,
+    await watchForever({
+      url: account.napcatUrl,
+      timeoutMs: account.timeoutMs,
+      fromGroup: account.fromGroup,
+      fromUser: account.fromUser,
+      ignorePrefixes: account.ignorePrefixes,
+      asr: account.asr,
+      abortSignal: abort ?? undefined,
+      log: ctx.log,
+      onConnect: (client) => {
+        // Keep activeClients in sync with the live WS connection so that
+        // getClient() (used by outbound sendText/sendMedia/sendPayload) always
+        // returns the currently-connected client.
+        if (client) {
+          activeClients.set(account.accountId, client);
+        } else {
+          activeClients.delete(account.accountId);
+        }
+      },
+      onMessage: (msg) => {
+        const client = activeClients.get(account.accountId);
+        if (!client) return;
+        void handleInboundNapcatMessage({
+          message: msg,
+          account,
+          cfg,
+          client,
+          ctx,
+        }).catch((err) => ctx.log?.error(`napcat inbound failed: ${String(err)}`));
+      },
     });
-    subscriptionId = subResult?.subscription ?? null;
-    await client.waitForClose();
   } catch (err) {
     if (!abort?.aborted) {
       ctx.log?.error(`napcat monitor failed: ${String(err)}`);
@@ -304,14 +307,7 @@ async function startNapcatMonitor(ctx: ChannelGatewayContext<ResolvedNapcatAccou
       throw err;
     }
   } finally {
-    abort?.removeEventListener("abort", onAbort);
     activeClients.delete(account.accountId);
-    if (subscriptionId) {
-      void client
-        .request("watch.unsubscribe", { subscription: subscriptionId })
-        .catch(() => {});
-    }
-    await client.stop().catch(() => {});
     ctx.setStatus({
       ...ctx.getStatus(),
       accountId: account.accountId,
@@ -330,7 +326,7 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
     detailLabel: "QQ (Napcat)",
     docsPath: "/channels/napcat",
     docsLabel: "napcat",
-    blurb: "Napcat bridge via nap-msg JSON-RPC.",
+    blurb: "Napcat channel plugin via direct WebSocket.",
     quickstartAllowFrom: true,
   },
   capabilities: {
@@ -353,7 +349,7 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
       name: account.name,
       enabled: account.enabled,
       configured: account.configured,
-      urlSource: account.napcatUrl ? "config/env" : "unset",
+      urlSource: account.napcatUrl ? "config" : "unset",
     }),
   },
   messaging: {
@@ -378,7 +374,7 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
       const runtime = getNapcatRuntime();
       const account = resolveNapcatAccount({ cfg, accountId });
       if (!account.configured) {
-        throw new Error("Napcat URL not configured (set channels.napcat.url or NAPCAT_URL)");
+        throw new Error("Napcat URL not configured (set channels.napcat.url in config.json)");
       }
       const parsedTarget = normalizeNapcatTarget(to);
       if (!parsedTarget) {
@@ -405,7 +401,7 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
       const runtime = getNapcatRuntime();
       const account = resolveNapcatAccount({ cfg, accountId });
       if (!account.configured) {
-        throw new Error("Napcat URL not configured (set channels.napcat.url or NAPCAT_URL)");
+        throw new Error("Napcat URL not configured (set channels.napcat.url in config.json)");
       }
       const parsedTarget = normalizeNapcatTarget(to);
       if (!parsedTarget) {
@@ -432,7 +428,7 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
       const runtime = getNapcatRuntime();
       const account = resolveNapcatAccount({ cfg, accountId });
       if (!account.configured) {
-        throw new Error("Napcat URL not configured (set channels.napcat.url or NAPCAT_URL)");
+        throw new Error("Napcat URL not configured (set channels.napcat.url in config.json)");
       }
       const parsedTarget = normalizeNapcatTarget(to);
       if (!parsedTarget) {
@@ -483,7 +479,7 @@ export const napcatPlugin: ChannelPlugin<ResolvedNapcatAccount> = {
   gateway: {
     startAccount: async (ctx) => {
       if (!ctx.account.configured) {
-        throw new Error("Napcat URL not configured (set channels.napcat.url or NAPCAT_URL)");
+        throw new Error("Napcat URL not configured (set channels.napcat.url in config.json)");
       }
       await startNapcatMonitor(ctx);
     },
