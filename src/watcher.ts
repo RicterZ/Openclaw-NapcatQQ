@@ -162,6 +162,59 @@ async function fetchVoice(
 }
 
 /**
+ * Look up a referenced message by ID via get_msg API.
+ * Returns null if lookup fails or returns empty text.
+ */
+async function fetchReferencedMessage(
+  messageId: string,
+  client: NapcatWsClient,
+  log: NapcatLogger,
+): Promise<{ senderId: string; senderNick: string; text: string } | null> {
+  log.debug(`Fetching referenced message_id=${messageId}`);
+  try {
+    const resp = await client.request<Record<string, unknown>>(
+      "get_msg",
+      { message_id: Number(messageId) },
+      { timeoutMs: 5_000 },
+    );
+
+    const sender = (resp?.["sender"] ?? {}) as Record<string, unknown>;
+    const senderId = String(sender["user_id"] ?? "unknown");
+    const senderNick = String(sender["nickname"] ?? senderId);
+
+    // 优先使用 raw_message（纯文本），降级到递归解析 message 段
+    let text: string;
+    const rawMessage = resp?.["raw_message"];
+    if (typeof rawMessage === "string" && rawMessage.trim()) {
+      // raw_message 可能含 CQ 码，提取纯文本部分
+      text = rawMessage.replace(/\[CQ:[^\]]*\]/g, "").trim();
+    } else {
+      // 降级：从 message 段提取 text 类型
+      const segments = resp?.["message"];
+      if (Array.isArray(segments)) {
+        text = (segments as NapcatSegment[])
+          .filter((s) => s.type === "text")
+          .map((s) => String((s.data?.["text"] ?? "")))
+          .join("")
+          .trim();
+      } else {
+        text = "";
+      }
+    }
+
+    if (!text) {
+      log.debug(`get_msg returned empty text for message_id=${messageId}`);
+      return null;
+    }
+
+    return { senderId, senderNick, text };
+  } catch (err) {
+    log.warn(`get_msg failed for message_id=${messageId}: ${String(err)}`);
+    return null;
+  }
+}
+
+/**
  * Parse the message array from a Napcat event and extract:
  *  - plain text (concatenated from text/json/record/asr segments)
  *  - media paths (images, videos, files)
@@ -187,6 +240,7 @@ async function extractMessageContent(
 
   const textParts: string[] = [];
   let recordText: string | null = null;
+  let replySegmentId: string | null = null;
 
   for (const item of message as NapcatSegment[]) {
     if (typeof item !== "object" || item === null) continue;
@@ -203,6 +257,14 @@ async function extractMessageContent(
       subType = 0;
     }
     if (subType === 1) continue;
+
+    if (segType === "reply") {
+      const refId = segData["id"];
+      if (typeof refId === "string" || typeof refId === "number") {
+        replySegmentId = String(refId);
+      }
+      continue;
+    }
 
     if (segType === "at" || segType === "face") continue;
 
@@ -250,8 +312,22 @@ async function extractMessageContent(
 
   if (recordText) textParts.push(recordText);
 
+  // 解析引用消息，拼到文本最前面
+  if (replySegmentId) {
+    const ref = await fetchReferencedMessage(replySegmentId, client, log);
+    if (ref) {
+      const refLine = ref.text
+        .split("\n")
+        .map((line, i) =>
+          i === 0 ? `> 引用 ${ref.senderNick}(${ref.senderId}): ${line}` : `> ${line}`,
+        )
+        .join("\n");
+      textParts.unshift(refLine, "");
+    }
+  }
+
   const cleaned = textParts
-    .filter((line) => line && line.trim())
+    .filter((line, i) => (line && line.trim()) || (i > 0 && textParts[i - 1]?.startsWith(">")))
     .map((line) => line.trim())
     .join("\n");
 
@@ -380,7 +456,7 @@ export async function watchForever(opts: WatchForeverOptions): Promise<void> {
       // Prefix filter
       if (textContent) {
         const firstLine =
-          textContent.split("\n").find((ln) => ln.trim()) ?? textContent;
+          textContent.split("\n").find((ln) => ln.trim() && !ln.startsWith("> 引用 ")) ?? textContent;
         const checkText = firstLine.trimStart();
         if (
           ignorePrefixes.length > 0 &&
@@ -404,6 +480,7 @@ export async function watchForever(opts: WatchForeverOptions): Promise<void> {
       );
 
       const msg = eventToWatchedMessage(event, textContent, media);
+
       try {
         const result = onMessage(msg);
         if (result instanceof Promise) await result;
