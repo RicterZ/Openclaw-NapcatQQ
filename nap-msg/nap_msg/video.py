@@ -85,14 +85,26 @@ def _download(url: str, work_dir: Path, token: str, duration: int) -> Optional[P
         # for the full stream to finish.
         "download_ranges": yt_dlp.utils.download_range_func(None, [(0, duration)]),
         "force_keyframes_at_cuts": True,
-        # HLS/m3u8: pass extra flags to ffmpeg's HLS downloader to lift the
-        # default protocol/extension safety restrictions that prevent fetching
-        # segments from http/https and non-standard file extensions.
-        # "data" is required for AES-128 encrypted streams where the key is
-        # passed as a data: URI inline.
-        "downloader_args": {
-            "ffmpeg": [
+        # HLS/m3u8: use ffmpeg as the external downloader so we can pass input
+        # options (-i flags) that the native HlsFD cannot accept.
+        #
+        # Why ffmpeg external downloader instead of downloader_args["ffmpeg"]:
+        #   yt-dlp's native HLS downloader (HlsFD) rejects segment URLs that
+        #   have no file extension (e.g. Xiaomi smart-camera streams whose
+        #   segment URLs end in query-string parameters).  The fix is
+        #   -extension_picky 0, but that is an *input* option for ffmpeg's HLS
+        #   demuxer — it must appear before -i.  yt-dlp only exposes that
+        #   placement through external_downloader_args["ffmpeg_i"].
+        #   downloader_args["ffmpeg"] injects flags after -i (output/global
+        #   scope) and has no effect on the demuxer.
+        #
+        # "data" in protocol_whitelist is required for AES-128 encrypted
+        # streams where the decryption key is delivered as a data: URI.
+        "external_downloader": {"default": "ffmpeg"},
+        "external_downloader_args": {
+            "ffmpeg_i": [
                 "-allowed_extensions", "ALL",
+                "-allowed_segment_extensions", "ALL",
                 "-extension_picky", "0",
                 "-protocol_whitelist", "file,http,https,tcp,tls,crypto,data",
             ],

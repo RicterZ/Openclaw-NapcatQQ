@@ -143,7 +143,7 @@ async function handleInboundNapcatMessage(params: {
     channel: "napcat",
     accountId: account.accountId,
     peer: {
-      kind: message.isGroup ? "group" : "dm",
+      kind: message.isGroup ? "group" : "direct",
       id: message.isGroup ? chatId ?? "unknown" : senderId || "unknown",
     },
   });
