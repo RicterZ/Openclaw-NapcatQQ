@@ -1,12 +1,8 @@
-import {
-  DEFAULT_ACCOUNT_ID,
-  createReplyPrefixContext,
-  type ChannelGatewayContext,
-  type ChannelPlugin,
-  type ChannelStatusIssue,
-  type OpenClawConfig,
-  type ReplyPayload,
-} from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/account-id";
+import { createReplyPrefixContext } from "openclaw/plugin-sdk/channel-runtime";
+import type { ChannelGatewayContext, ChannelStatusIssue } from "openclaw/plugin-sdk/channel-contract";
+import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/core";
+import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 
 import { napcatChannelConfigSchema } from "./config-schema.js";
 import { deliverNapcatReplies, type NapcatTarget } from "./deliver.js";

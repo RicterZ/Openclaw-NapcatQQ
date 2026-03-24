@@ -1,4 +1,4 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 
 import { napcatPlugin } from "./src/channel.js";
 import { napcatChannelConfigSchema } from "./src/config-schema.js";

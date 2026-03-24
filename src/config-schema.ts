@@ -1,4 +1,6 @@
-import type { ChannelConfigSchema } from "openclaw/plugin-sdk";
+// ChannelConfigSchema is not directly exported from a narrow plugin-sdk subpath.
+// Use the same shape inline (schema + optional uiHints).
+type ChannelConfigSchema = { schema: Record<string, unknown>; uiHints?: Record<string, unknown> };
 
 const asrSchema = {
   type: "object",

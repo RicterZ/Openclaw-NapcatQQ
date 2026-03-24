@@ -1,9 +1,10 @@
-import type { ChunkMode, OpenClawConfig, ReplyPayload } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import type { ChunkMode, ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
+import type { PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
 import { readFile } from "node:fs/promises";
 
 import type { NapcatWsClient } from "./ws-client.js";
 import type { ResolvedNapcatAccount } from "./types.js";
-import type { PluginRuntime } from "openclaw/plugin-sdk";
 
 export type NapcatTarget = {
   channel: "group" | "private";

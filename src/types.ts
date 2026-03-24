@@ -1,5 +1,11 @@
-import type { BlockStreamingCoalesceConfig, OpenClawConfig } from "openclaw/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/account-id";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+
+/** Matches BlockStreamingCoalesceConfig from openclaw core config types. */
+export type BlockStreamingCoalesceConfig = {
+  minChars?: number;
+  idleMs?: number;
+};
 
 export type NapcatAsrConfig = {
   secretId: string;
