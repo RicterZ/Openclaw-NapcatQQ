@@ -5,8 +5,7 @@ __pycache__/
 nap-msg/poetry.lock
 
 # TypeScript / Node
-node_modules/*
-!node_modules/openclaw
+node_modules/
 dist/
 *.js.map
 
