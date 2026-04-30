@@ -157,6 +157,11 @@ napcat/file/<YYYY-MM>/<hash>.<ext>
 | `asr.secretId/secretKey` | string | 腾讯云语音识别密钥 |
 | `blockStreaming` | boolean | 禁用流式回复 |
 
+**重要**：OpenClaw 群聊默认 delivery mode 为 `message_tool_only`（AI 需主动调 message tool 才发送）。要让群聊自动回复，必须在 OpenClaw 配置中设置：
+```json
+{ "messages": { "groupChat": { "visibleReplies": "automatic" } } }
+```
+
 Python CLI 环境变量（`nap-msg/.env`）：
 
 | 变量 | 说明 |

@@ -87,6 +87,11 @@ Single-group example (only accept messages from one QQ group):
       "fromGroup": "987654321"
     }
   },
+  "messages": {
+    "groupChat": {
+      "visibleReplies": "automatic"
+    }
+  },
   "plugins": {
     "entries": {
       "napcat": { "enabled": true }
@@ -94,6 +99,8 @@ Single-group example (only accept messages from one QQ group):
   }
 }
 ```
+
+> **Note:** OpenClaw defaults group chat replies to `message_tool_only` (the AI must explicitly call a message tool to send). For Napcat group chats to receive automatic replies, you **must** set `messages.groupChat.visibleReplies` to `"automatic"` in your OpenClaw config.
 
 After saving, restart the gateway:
 ```bash
@@ -207,6 +214,9 @@ The plugin emits structured log output through OpenClaw's log sink. Enable debug
 **Connection refused / timeout**
 - Verify `url` points to the correct host and port.
 - Check that Napcat is running and its WebSocket server is enabled.
+
+**Group messages received but no reply sent**
+- OpenClaw defaults group chat replies to `message_tool_only`. Add `"messages": {"groupChat": {"visibleReplies": "automatic"}}` to your OpenClaw config to enable automatic replies in groups.
 
 **Messages not received**
 - Check `fromGroup` / `fromUser` — they must match exactly (string comparison).
